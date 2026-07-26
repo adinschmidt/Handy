@@ -310,7 +310,7 @@ pub enum OrtAcceleratorSetting {
     Rocm,
 }
 
-#[derive(Clone, Serialize, Deserialize, Type)]
+#[derive(Clone, Default, Serialize, Deserialize, Type)]
 #[serde(transparent)]
 pub(crate) struct SecretMap(HashMap<String, String>);
 
@@ -384,7 +384,9 @@ pub struct AppSettings {
     pub selected_transcription_provider: TranscriptionProvider,
     #[serde(default = "default_codex_asr_base_url")]
     pub codex_asr_base_url: String,
-    #[serde(default = "default_transcription_api_keys")]
+    /// Keyed by provider id. A provider with no entry is simply unconfigured;
+    /// nothing pre-seeds a blank key.
+    #[serde(default)]
     pub transcription_api_keys: SecretMap,
     #[serde(default)]
     pub onboarding_completed: bool,
@@ -487,13 +489,6 @@ fn default_model() -> String {
 
 fn default_codex_asr_base_url() -> String {
     "http://127.0.0.1:8788".to_string()
-}
-
-fn default_transcription_api_keys() -> SecretMap {
-    SecretMap(HashMap::from([(
-        "elevenlabs_scribe".to_string(),
-        String::new(),
-    )]))
 }
 
 const CURRENT_SETTINGS_SCHEMA_VERSION: u32 = 1;
@@ -752,20 +747,6 @@ fn default_typing_tool() -> TypingTool {
     TypingTool::Auto
 }
 
-fn ensure_transcription_defaults(settings: &mut AppSettings) -> bool {
-    if settings
-        .transcription_api_keys
-        .contains_key("elevenlabs_scribe")
-    {
-        false
-    } else {
-        settings
-            .transcription_api_keys
-            .insert("elevenlabs_scribe".to_string(), String::new());
-        true
-    }
-}
-
 fn ensure_post_process_defaults(settings: &mut AppSettings) -> bool {
     let mut changed = false;
     for provider in default_post_process_providers() {
@@ -891,7 +872,7 @@ pub fn get_default_settings() -> AppSettings {
         selected_model: "".to_string(),
         selected_transcription_provider: TranscriptionProvider::Local,
         codex_asr_base_url: default_codex_asr_base_url(),
-        transcription_api_keys: default_transcription_api_keys(),
+        transcription_api_keys: SecretMap::default(),
         onboarding_completed: false,
         always_on_microphone: false,
         selected_microphone: None,
@@ -1019,9 +1000,7 @@ pub fn get_settings(app: &AppHandle) -> AppSettings {
         default_settings
     };
 
-    let post_process_defaults_changed = ensure_post_process_defaults(&mut settings);
-    let transcription_defaults_changed = ensure_transcription_defaults(&mut settings);
-    if post_process_defaults_changed || transcription_defaults_changed {
+    if ensure_post_process_defaults(&mut settings) {
         store.set("settings", serde_json::to_value(&settings).unwrap());
     }
 
@@ -1181,41 +1160,9 @@ mod tests {
             TranscriptionProvider::Local
         );
         assert_eq!(settings.codex_asr_base_url, "http://127.0.0.1:8788");
-        assert_eq!(
-            settings
-                .transcription_api_keys
-                .get("elevenlabs_scribe")
-                .map(String::as_str),
-            Some("")
-        );
+        assert!(settings.transcription_api_keys.is_empty());
         // Bindings default to empty; the load path merges the real defaults in.
         assert!(settings.bindings.is_empty());
-    }
-
-    #[test]
-    fn adds_missing_transcription_api_key_without_overwriting_values() {
-        let mut settings = get_default_settings();
-        settings.transcription_api_keys.clear();
-        assert!(ensure_transcription_defaults(&mut settings));
-        assert_eq!(
-            settings
-                .transcription_api_keys
-                .get("elevenlabs_scribe")
-                .map(String::as_str),
-            Some("")
-        );
-
-        settings
-            .transcription_api_keys
-            .insert("elevenlabs_scribe".to_string(), "existing-key".to_string());
-        assert!(!ensure_transcription_defaults(&mut settings));
-        assert_eq!(
-            settings
-                .transcription_api_keys
-                .get("elevenlabs_scribe")
-                .map(String::as_str),
-            Some("existing-key")
-        );
     }
 
     /// Frozen snapshot of a real v0.9.0-era settings store, as written to
