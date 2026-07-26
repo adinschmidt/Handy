@@ -3,7 +3,7 @@ use crate::managers::audio::AudioRecordingManager;
 use crate::managers::model::{EngineType, ModelManager};
 use crate::settings::{
     get_settings, AppSettings, ModelUnloadTimeout, OrtAcceleratorSetting,
-    TranscribeAcceleratorSetting,
+    TranscribeAcceleratorSetting, TranscriptionProvider,
 };
 use anyhow::Result;
 use log::{debug, error, info, warn};
@@ -725,8 +725,17 @@ impl TranscriptionManager {
                     .store(false, Ordering::Release);
             }
             let settings = get_settings(&self_clone.app_handle);
-            if let Err(e) = self_clone.load_model(&settings.selected_model) {
-                error!("Failed to load model: {}", e);
+            if settings.selected_transcription_provider == TranscriptionProvider::Local {
+                if let Err(e) = self_clone.load_model(&settings.selected_model) {
+                    error!("Failed to load model: {}", e);
+                } else if get_settings(&self_clone.app_handle).selected_transcription_provider
+                    != TranscriptionProvider::Local
+                {
+                    // The user switched to a Cloud provider while this background
+                    // load was running. Do not leave the completed local engine
+                    // resident after the provider change.
+                    let _ = self_clone.unload_model();
+                }
             }
             let mut is_loading = self_clone.is_loading.lock().unwrap();
             *is_loading = false;
@@ -1605,7 +1614,7 @@ fn transcribe_cpp_run_plan(
     }
 }
 
-fn post_process_transcription_text(
+pub(crate) fn post_process_transcription_text(
     raw: String,
     settings: &AppSettings,
     custom_words_already_prompted: bool,

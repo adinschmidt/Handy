@@ -151,7 +151,8 @@
       "translation": "अङ्ग्रेजीमा अनुवाद गर्न सक्छ",
       "translate": "अनुवाद",
       "streaming": "बोल्दै गर्दा लाइभ ट्रान्सक्रिप्सन देखाउँछ"
-    }
+    },
+    "providerError": "Failed to switch transcription provider"
   },
   "settings": {
     "modelSettings": {
@@ -214,7 +215,23 @@
         "label": "फेरि स्क्यान गर्नुहोस्",
         "tooltip": "Handy बाहिरबाट मोडेल फोल्डर वा Hugging Face क्यासमा थपिएका मोडेलहरू फेरि स्क्यान गर्नुहोस्"
       },
-      "noModelsMatch": "यो फिल्टरसँग कुनै मोडेल मिल्दैन।"
+      "noModelsMatch": "यो फिल्टरसँग कुनै मोडेल मिल्दैन।",
+      "cloud": {
+        "title": "Cloud",
+        "active": "Active",
+        "use": "Use",
+        "baseUrl": "Base URL",
+        "codex": {
+          "name": "Codex ASR",
+          "description": "Transcribe with a Codex ASR server running on this machine.",
+          "shortDescription": "Local HTTP server",
+          "setup": "Start codex-asr on loopback with --no-api-key before transcribing."
+        },
+        "invalidUrl": "Enter a valid Codex ASR server URL."
+      },
+      "local": {
+        "title": "Local"
+      }
     },
     "sound": {
       "title": "साउन्ड",

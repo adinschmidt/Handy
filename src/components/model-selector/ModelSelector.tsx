@@ -9,6 +9,7 @@ import ModelDropdown from "./ModelDropdown";
 import DownloadProgressDisplay from "./DownloadProgressDisplay";
 
 import { ModelStateEvent } from "@/lib/types/events";
+import { useSettings } from "@/hooks/useSettings";
 
 type ModelStatus =
   | "ready"
@@ -26,6 +27,8 @@ interface ModelSelectorProps {
 
 const ModelSelector: React.FC<ModelSelectorProps> = ({ onError }) => {
   const { t } = useTranslation();
+  const { settings, setTranscriptionProvider } = useSettings();
+  const activeProvider = settings?.selected_transcription_provider ?? "local";
   const {
     models,
     currentModel,
@@ -49,7 +52,10 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onError }) => {
   // Check model status when currentModel changes
   useEffect(() => {
     const checkStatus = async () => {
-      if (currentModel) {
+      if (activeProvider !== "local") {
+        setModelStatus("ready");
+        setModelError(null);
+      } else if (currentModel) {
         try {
           const statusResult = await commands.getTranscriptionModelStatus();
           if (statusResult.status === "ok") {
@@ -66,7 +72,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onError }) => {
       }
     };
     checkStatus();
-  }, [currentModel]);
+  }, [activeProvider, currentModel]);
 
   useEffect(() => {
     // Listen for model loading lifecycle events
@@ -105,7 +111,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onError }) => {
         setTimeout(async () => {
           try {
             const isRecording = await commands.isRecording();
-            if (!isRecording) {
+            if (!isRecording && activeProvider === "local") {
               setPendingModelId(modelId);
               setModelError(null);
               setShowModelDropdown(false);
@@ -138,7 +144,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onError }) => {
       modelStateUnlisten.then((fn) => fn());
       downloadCompleteUnlisten.then((fn) => fn());
     };
-  }, [selectModel]);
+  }, [activeProvider, selectModel]);
 
   const handleModelSelect = async (modelId: string) => {
     setPendingModelId(modelId);
@@ -153,7 +159,24 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onError }) => {
     }
   };
 
+  const handleProviderSelect = async (provider: "codex_asr") => {
+    setShowModelDropdown(false);
+    setModelError(null);
+    try {
+      await setTranscriptionProvider(provider);
+      setModelStatus("ready");
+    } catch {
+      setModelStatus("error");
+      setModelError(t("modelSelector.providerError"));
+      onError?.(t("modelSelector.providerError"));
+    }
+  };
+
   const getModelDisplayText = (): string => {
+    if (activeProvider === "codex_asr") {
+      return t("settings.models.cloud.codex.name");
+    }
+
     const verifyingKeys = Object.keys(verifyingModels);
     if (verifyingKeys.length > 0) {
       if (verifyingKeys.length === 1) {
@@ -236,6 +259,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onError }) => {
 
   // Derive display status from model status + store state
   const getDisplayStatus = (): ModelStatus => {
+    if (activeProvider !== "local") return modelStatus;
     if (Object.keys(verifyingModels).length > 0) return "verifying";
     if (Object.keys(extractingModels).length > 0) return "extracting";
     if (Object.keys(downloadProgress).length > 0) return "downloading";
@@ -258,7 +282,9 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onError }) => {
           <ModelDropdown
             models={models}
             currentModelId={displayModelId}
+            activeProvider={activeProvider}
             onModelSelect={handleModelSelect}
+            onProviderSelect={handleProviderSelect}
           />
         )}
       </div>

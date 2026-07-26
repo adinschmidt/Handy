@@ -151,7 +151,8 @@
     },
     "cancel": "Annulla",
     "cancelDownload": "Annulla download",
-    "legacy": "Obsoleto"
+    "legacy": "Obsoleto",
+    "providerError": "Failed to switch transcription provider"
   },
   "settings": {
     "modelSettings": {
@@ -173,6 +174,22 @@
       "rescan": {
         "label": "Riscansiona",
         "tooltip": "Riscansiona per trovare modelli aggiunti alla cartella dei modelli o alla cache di Hugging Face al di fuori di Handy"
+      },
+      "cloud": {
+        "title": "Cloud",
+        "active": "Active",
+        "use": "Use",
+        "baseUrl": "Base URL",
+        "codex": {
+          "name": "Codex ASR",
+          "description": "Transcribe with a Codex ASR server running on this machine.",
+          "shortDescription": "Local HTTP server",
+          "setup": "Start codex-asr on loopback with --no-api-key before transcribing."
+        },
+        "invalidUrl": "Enter a valid Codex ASR server URL."
+      },
+      "local": {
+        "title": "Local"
       }
     },
     "general": {

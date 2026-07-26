@@ -151,7 +151,8 @@
     },
     "cancel": "Hủy",
     "cancelDownload": "Hủy tải xuống",
-    "legacy": "Cũ"
+    "legacy": "Cũ",
+    "providerError": "Failed to switch transcription provider"
   },
   "settings": {
     "modelSettings": {
@@ -173,6 +174,22 @@
       "rescan": {
         "label": "Quét lại",
         "tooltip": "Quét lại các mô hình được thêm vào thư mục mô hình hoặc bộ nhớ đệm Hugging Face bên ngoài Handy"
+      },
+      "cloud": {
+        "title": "Cloud",
+        "active": "Active",
+        "use": "Use",
+        "baseUrl": "Base URL",
+        "codex": {
+          "name": "Codex ASR",
+          "description": "Transcribe with a Codex ASR server running on this machine.",
+          "shortDescription": "Local HTTP server",
+          "setup": "Start codex-asr on loopback with --no-api-key before transcribing."
+        },
+        "invalidUrl": "Enter a valid Codex ASR server URL."
+      },
+      "local": {
+        "title": "Local"
       }
     },
     "general": {

@@ -7,8 +7,11 @@ use crate::managers::history::HistoryManager;
 use crate::managers::model::ModelManager;
 use crate::managers::transcription::StreamWorkKind;
 use crate::managers::transcription::TranscriptionManager;
-use crate::settings::{get_settings, AppSettings, OverlayStyle, APPLE_INTELLIGENCE_PROVIDER_ID};
+use crate::settings::{
+    get_settings, AppSettings, OverlayStyle, TranscriptionProvider, APPLE_INTELLIGENCE_PROVIDER_ID,
+};
 use crate::shortcut;
+use crate::transcription_provider::{self, TranscriptionMode};
 use crate::tray::{change_tray_icon, TrayIconState};
 use crate::utils::{
     self, show_processing_overlay, show_recording_overlay, show_transcribing_overlay,
@@ -399,6 +402,10 @@ pub(crate) struct ProcessedTranscription {
 /// resolves it independently so it agrees with the language the transcription ran
 /// in, without threading a value through the pipeline.
 fn resolve_effective_language(app: &AppHandle, settings: &AppSettings) -> String {
+    if settings.selected_transcription_provider != TranscriptionProvider::Local {
+        return settings.selected_language.clone();
+    }
+
     let tm = app.state::<Arc<TranscriptionManager>>();
     let model_manager = app.state::<Arc<ModelManager>>();
     let active_model = tm
@@ -469,9 +476,9 @@ impl ShortcutAction for TranscribeAction {
         let tm = app.state::<Arc<TranscriptionManager>>();
         let rm = app.state::<Arc<AudioRecordingManager>>();
 
-        // Load ASR model and VAD model in parallel
+        // Load the VAD model in parallel. Local ASR preparation happens after
+        // resolving the active transcription provider below.
         let kickoff_started = Instant::now();
-        tm.initiate_model_load();
         let rm_clone = Arc::clone(&rm);
         std::thread::spawn(move || {
             if let Err(e) = rm_clone.preload_vad() {
@@ -489,18 +496,11 @@ impl ShortcutAction for TranscribeAction {
         let plan_started = Instant::now();
         let settings = get_settings(app);
         let is_always_on = settings.always_on_microphone;
+        transcription_provider::prepare_local_model(app, &settings);
 
-        let selected_model_info = app
-            .state::<Arc<ModelManager>>()
-            .get_model_info(&settings.selected_model);
-
-        // Use the app-facing model capability as the single pre-recording source
-        // for live streaming decisions. Unknown support is represented as false
-        // until the model registry is updated by discovery or runtime load.
-        let model_supports_streaming = selected_model_info
-            .as_ref()
-            .map(|m| m.supports_streaming)
-            .unwrap_or(false);
+        // Cloud providers are batch-only. Local targets keep their advertised
+        // streaming behavior and existing live overlay path.
+        let model_supports_streaming = transcription_provider::supports_streaming(app, &settings);
         let vad_policy = if !settings.vad_enabled {
             VadPolicy::Disabled
         } else if model_supports_streaming {
@@ -688,20 +688,41 @@ impl ShortcutAction for TranscribeAction {
                         crate::audio_toolkit::save_wav_file(&wav_path, &samples_for_wav)
                     });
 
-                    // Transcribe concurrently with WAV save. If a live stream was
-                    // running, finalize it and use its text (all audio was already
-                    // fed to the stream); otherwise batch-transcribe the samples.
+                    // Transcribe concurrently with WAV save through the active
+                    // Local or Cloud target. Dropping a cancelled HTTP future aborts
+                    // the request. Local blocking inference remains joined so a new
+                    // dictation cannot race a detached engine task.
                     let transcription_time = Instant::now();
-                    let transcription_result = match tm.finalize_stream() {
-                        // A finalized stream with usable text wins. An empty result
-                        // (no active stream, produced nothing, or a finalize error
-                        // after the engine was returned) falls back to a full batch
-                        // transcription of the same audio. A finalize timeout is
-                        // surfaced instead — the worker may still hold the engine,
-                        // so a batch fallback would contend with it.
-                        Ok(Some(text)) if !text.trim().is_empty() => Ok(text),
-                        Ok(_) => tm.transcribe(samples),
-                        Err(err) => Err(err),
+                    let transcription_settings = get_settings(&ah);
+                    let cloud_target =
+                        transcription_provider::is_cloud_provider(&transcription_settings);
+                    let operation = transcription_provider::transcribe_current_target(
+                        &ah,
+                        transcription_settings,
+                        samples,
+                        TranscriptionMode::PreferActiveStream,
+                    );
+                    let transcription_result = if cloud_target {
+                        let Some(result) = complete_unless_cancelled(operation, || {
+                            rm.was_cancelled_since(cancel_generation)
+                        })
+                        .await
+                        else {
+                            debug!("Transcription operation cancelled during transcription");
+                            tm.cancel_stream();
+                            let _ = wav_handle.await;
+                            if let Err(err) = std::fs::remove_file(&wav_path_for_verify) {
+                                if err.kind() != std::io::ErrorKind::NotFound {
+                                    warn!("Failed to remove cancelled recording: {}", err);
+                                }
+                            }
+                            utils::hide_recording_overlay(&ah);
+                            change_tray_icon(&ah, TrayIconState::Idle);
+                            return;
+                        };
+                        result
+                    } else {
+                        operation.await
                     };
 
                     // Await WAV save and verify

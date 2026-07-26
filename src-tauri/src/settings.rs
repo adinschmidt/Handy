@@ -106,6 +106,14 @@ pub struct PostProcessProvider {
     pub supports_structured_output: bool,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TranscriptionProvider {
+    #[default]
+    Local,
+    CodexAsr,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
 #[serde(rename_all = "lowercase")]
 pub enum OverlayPosition {
@@ -372,6 +380,10 @@ pub struct AppSettings {
     #[serde(default = "default_model")]
     pub selected_model: String,
     #[serde(default)]
+    pub selected_transcription_provider: TranscriptionProvider,
+    #[serde(default = "default_codex_asr_base_url")]
+    pub codex_asr_base_url: String,
+    #[serde(default)]
     pub onboarding_completed: bool,
     #[serde(default = "default_always_on_microphone")]
     pub always_on_microphone: bool,
@@ -468,6 +480,10 @@ pub struct AppSettings {
 
 fn default_model() -> String {
     "".to_string()
+}
+
+fn default_codex_asr_base_url() -> String {
+    "http://127.0.0.1:8788".to_string()
 }
 
 const CURRENT_SETTINGS_SCHEMA_VERSION: u32 = 1;
@@ -849,6 +865,8 @@ pub fn get_default_settings() -> AppSettings {
         show_whats_new_on_update: default_show_whats_new_on_update(),
         whats_new_last_seen_version: default_whats_new_last_seen_version(),
         selected_model: "".to_string(),
+        selected_transcription_provider: TranscriptionProvider::Local,
+        codex_asr_base_url: default_codex_asr_base_url(),
         onboarding_completed: false,
         always_on_microphone: false,
         selected_microphone: None,
@@ -1131,6 +1149,11 @@ mod tests {
             .expect("all AppSettings fields need serde defaults");
         assert!(settings.push_to_talk);
         assert!(!settings.audio_feedback);
+        assert_eq!(
+            settings.selected_transcription_provider,
+            TranscriptionProvider::Local
+        );
+        assert_eq!(settings.codex_asr_base_url, "http://127.0.0.1:8788");
         // Bindings default to empty; the load path merges the real defaults in.
         assert!(settings.bindings.is_empty());
     }
@@ -1248,6 +1271,11 @@ mod tests {
         assert_eq!(settings.bindings["transcribe"].current_binding, "f13");
         assert_eq!(settings.log_level, LogLevel::Debug);
         assert_eq!(settings.sound_theme, SoundTheme::Pop);
+        assert_eq!(
+            settings.selected_transcription_provider,
+            TranscriptionProvider::Local
+        );
+        assert_eq!(settings.codex_asr_base_url, "http://127.0.0.1:8788");
 
         // A current-format store must not be rewritten on every read.
         assert!(!apply_settings_migrations(&mut settings, &stored));

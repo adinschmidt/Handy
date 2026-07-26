@@ -17,6 +17,7 @@ mod settings;
 mod shortcut;
 mod signal_handle;
 mod transcription_coordinator;
+mod transcription_provider;
 mod tray;
 mod tray_i18n;
 mod utils;
@@ -285,10 +286,21 @@ fn initialize_core_logic(app_handle: &AppHandle) {
             "quit" => {
                 app.exit(0);
             }
+            "provider_select:codex_asr" => {
+                if let Err(err) = commands::transcription::set_transcription_provider(
+                    app.clone(),
+                    settings::TranscriptionProvider::CodexAsr,
+                ) {
+                    log::error!("Failed to select Codex ASR via tray: {}", err);
+                }
+            }
             id if id.starts_with("model_select:") => {
                 let model_id = id.strip_prefix("model_select:").unwrap().to_string();
-                let current_model = settings::get_settings(app).selected_model;
-                if model_id == current_model {
+                let settings = settings::get_settings(app);
+                if model_id == settings.selected_model
+                    && settings.selected_transcription_provider
+                        == settings::TranscriptionProvider::Local
+                {
                     return;
                 }
                 let app_clone = app.clone();
@@ -700,6 +712,8 @@ pub fn run(cli_args: CliArgs) {
             commands::transcription::set_model_unload_timeout,
             commands::transcription::get_model_load_status,
             commands::transcription::unload_model_manually,
+            commands::transcription::set_transcription_provider,
+            commands::transcription::change_codex_asr_base_url,
             commands::history::get_history_entries,
             commands::history::toggle_history_entry_saved,
             commands::history::get_audio_file_path,

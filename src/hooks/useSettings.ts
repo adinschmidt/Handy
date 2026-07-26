@@ -29,6 +29,10 @@ interface UseSettingsReturn {
   // Convenience getters
   getSetting: <K extends keyof Settings>(key: K) => Settings[K] | undefined;
 
+  // Transcription provider helpers
+  setTranscriptionProvider: (provider: "local" | "codex_asr") => Promise<void>;
+  updateCodexAsrBaseUrl: (baseUrl: string) => Promise<void>;
+
   // Post-processing helpers
   setPostProcessProvider: (providerId: string) => Promise<void>;
   updatePostProcessBaseUrl: (
@@ -69,6 +73,8 @@ export const useSettings = (): UseSettingsReturn => {
     updateBinding: store.updateBinding,
     resetBinding: store.resetBinding,
     getSetting: store.getSetting,
+    setTranscriptionProvider: store.setTranscriptionProvider,
+    updateCodexAsrBaseUrl: store.updateCodexAsrBaseUrl,
     setPostProcessProvider: store.setPostProcessProvider,
     updatePostProcessBaseUrl: store.updatePostProcessBaseUrl,
     updatePostProcessApiKey: store.updatePostProcessApiKey,

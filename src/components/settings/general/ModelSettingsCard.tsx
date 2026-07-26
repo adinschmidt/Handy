@@ -9,10 +9,21 @@ import {
   CHINESE_LANGUAGE_CODE,
   getUniqueCapabilityLanguages,
 } from "@/lib/constants/languages";
+import { useSettings } from "@/hooks/useSettings";
 
 export const ModelSettingsCard: React.FC = () => {
   const { t } = useTranslation();
+  const { settings } = useSettings();
   const { currentModel, models } = useModelStore();
+  const activeProvider = settings?.selected_transcription_provider ?? "local";
+
+  if (activeProvider === "codex_asr") {
+    return (
+      <SettingsGroup title={t("settings.models.cloud.codex.name")}>
+        <LanguageSelector descriptionMode="tooltip" grouped={true} />
+      </SettingsGroup>
+    );
+  }
 
   const currentModelInfo = models.find((m: ModelInfo) => m.id === currentModel);
 

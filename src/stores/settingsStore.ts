@@ -36,6 +36,8 @@ interface SettingsStore {
   isUpdatingKey: (key: string) => boolean;
   playTestSound: (soundType: "start" | "stop") => Promise<void>;
   checkCustomSounds: () => Promise<void>;
+  setTranscriptionProvider: (provider: "local" | "codex_asr") => Promise<void>;
+  updateCodexAsrBaseUrl: (baseUrl: string) => Promise<void>;
   setPostProcessProvider: (providerId: string) => Promise<void>;
   updatePostProcessSetting: (
     settingType: "base_url" | "api_key" | "model",
@@ -402,6 +404,68 @@ export const useSettingsStore = create<SettingsStore>()(
       }
     },
 
+    setTranscriptionProvider: async (provider) => {
+      const { settings, setUpdating, refreshSettings } = get();
+      const updateKey = "selected_transcription_provider";
+      const previous = settings?.selected_transcription_provider ?? "local";
+
+      setUpdating(updateKey, true);
+      if (settings) {
+        set((state) => ({
+          settings: state.settings
+            ? { ...state.settings, selected_transcription_provider: provider }
+            : null,
+        }));
+      }
+
+      try {
+        const result = await commands.setTranscriptionProvider(provider);
+        if (result.status === "error") throw new Error(result.error);
+        await refreshSettings();
+      } catch (error) {
+        console.error("Failed to set transcription provider:", error);
+        set((state) => ({
+          settings: state.settings
+            ? { ...state.settings, selected_transcription_provider: previous }
+            : null,
+        }));
+        throw error;
+      } finally {
+        setUpdating(updateKey, false);
+      }
+    },
+
+    updateCodexAsrBaseUrl: async (baseUrl) => {
+      const { settings, setUpdating, refreshSettings } = get();
+      const updateKey = "codex_asr_base_url";
+      const previous = settings?.codex_asr_base_url;
+
+      setUpdating(updateKey, true);
+      if (settings) {
+        set((state) => ({
+          settings: state.settings
+            ? { ...state.settings, codex_asr_base_url: baseUrl }
+            : null,
+        }));
+      }
+
+      try {
+        const result = await commands.changeCodexAsrBaseUrl(baseUrl);
+        if (result.status === "error") throw new Error(result.error);
+        await refreshSettings();
+      } catch (error) {
+        console.error("Failed to update Codex ASR base URL:", error);
+        set((state) => ({
+          settings: state.settings
+            ? { ...state.settings, codex_asr_base_url: previous }
+            : null,
+        }));
+        throw error;
+      } finally {
+        setUpdating(updateKey, false);
+      }
+    },
+
     setPostProcessProvider: async (providerId) => {
       const {
         settings,
@@ -598,6 +662,9 @@ export const useSettingsStore = create<SettingsStore>()(
       // Re-fetch settings when the backend changes them (e.g. language
       // reset during model switch). The backend is the source of truth.
       listen("model-state-changed", () => {
+        get().refreshSettings();
+      });
+      listen("transcription-provider-changed", () => {
         get().refreshSettings();
       });
     },

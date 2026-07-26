@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ask } from "@tauri-apps/plugin-dialog";
-import { ChevronDown, Globe, RefreshCw, Search } from "lucide-react";
+import { ChevronDown, Cloud, Globe, RefreshCw, Search } from "lucide-react";
 import type { ModelCardStatus } from "@/components/onboarding";
 import { ModelCard } from "@/components/onboarding";
 import { useModelStore } from "@/stores/modelStore";
@@ -11,6 +11,7 @@ import {
   supportsLanguageCode,
 } from "@/lib/constants/languages.ts";
 import type { ModelInfo } from "@/bindings";
+import { useSettings } from "@/hooks/useSettings";
 
 // check if model supports a language based on its supported_languages list
 const modelSupportsLanguage = (model: ModelInfo, langCode: string): boolean => {
@@ -25,6 +26,14 @@ const isLegacyModel = (model: ModelInfo): boolean =>
 
 export const ModelsSettings: React.FC = () => {
   const { t } = useTranslation();
+  const {
+    settings,
+    isUpdating,
+    setTranscriptionProvider,
+    updateCodexAsrBaseUrl,
+  } = useSettings();
+  const [codexBaseUrl, setCodexBaseUrl] = useState("");
+  const [codexError, setCodexError] = useState<string | null>(null);
   const [switchingModelId, setSwitchingModelId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [languageFilter, setLanguageFilter] = useState("all");
@@ -48,6 +57,13 @@ export const ModelsSettings: React.FC = () => {
     deleteModel,
     rescanLocalModels,
   } = useModelStore();
+
+  const activeProvider = settings?.selected_transcription_provider ?? "local";
+  const codexIsActive = activeProvider === "codex_asr";
+
+  useEffect(() => {
+    setCodexBaseUrl(settings?.codex_asr_base_url ?? "http://127.0.0.1:8788");
+  }, [settings?.codex_asr_base_url]);
 
   // click outside handler for language dropdown
   useEffect(() => {
@@ -99,7 +115,7 @@ export const ModelsSettings: React.FC = () => {
     if (switchingModelId === modelId) {
       return "switching";
     }
-    if (modelId === currentModel) {
+    if (activeProvider === "local" && modelId === currentModel) {
       return "active";
     }
     const model = models.find((m: ModelInfo) => m.id === modelId);
@@ -119,6 +135,27 @@ export const ModelsSettings: React.FC = () => {
     return stats?.speed;
   };
 
+  const saveCodexBaseUrl = async (): Promise<boolean> => {
+    try {
+      await updateCodexAsrBaseUrl(codexBaseUrl);
+      setCodexError(null);
+      return true;
+    } catch {
+      setCodexError(t("settings.models.cloud.invalidUrl"));
+      return false;
+    }
+  };
+
+  const handleCodexSelect = async () => {
+    if (!(await saveCodexBaseUrl())) return;
+    try {
+      await setTranscriptionProvider("codex_asr");
+      setCodexError(null);
+    } catch {
+      setCodexError(t("modelSelector.providerError"));
+    }
+  };
+
   const handleModelSelect = async (modelId: string) => {
     setSwitchingModelId(modelId);
     try {
@@ -135,7 +172,7 @@ export const ModelsSettings: React.FC = () => {
   const handleModelDelete = async (modelId: string) => {
     const model = models.find((m: ModelInfo) => m.id === modelId);
     const modelName = model?.name || modelId;
-    const isActive = modelId === currentModel;
+    const isActive = activeProvider === "local" && modelId === currentModel;
 
     const confirmed = await ask(
       isActive
@@ -234,7 +271,73 @@ export const ModelsSettings: React.FC = () => {
         </p>
       </div>
 
-      {/* Search bar — filter the catalog by name or description */}
+      <section className="space-y-3 rounded-xl border border-mid-gray/30 bg-mid-gray/5 p-4">
+        <div className="flex items-center gap-2">
+          <Cloud className="h-4 w-4 text-logo-primary" />
+          <h2 className="text-sm font-semibold">
+            {t("settings.models.cloud.title")}
+          </h2>
+        </div>
+        <div className="rounded-lg border border-mid-gray/30 bg-background p-4 space-y-3">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <div className="text-sm font-medium">
+                {t("settings.models.cloud.codex.name")}
+              </div>
+              <p className="mt-1 text-xs text-text/55">
+                {t("settings.models.cloud.codex.description")}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => void handleCodexSelect()}
+              disabled={
+                codexIsActive || isUpdating("selected_transcription_provider")
+              }
+              className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-default ${
+                codexIsActive
+                  ? "bg-logo-primary/15 text-logo-primary"
+                  : "bg-logo-primary text-white hover:bg-logo-primary/90 disabled:opacity-50"
+              }`}
+            >
+              {codexIsActive
+                ? t("settings.models.cloud.active")
+                : t("settings.models.cloud.use")}
+            </button>
+          </div>
+          <label className="block space-y-1.5">
+            <span className="text-xs font-medium text-text/65">
+              {t("settings.models.cloud.baseUrl")}
+            </span>
+            <input
+              type="url"
+              value={codexBaseUrl}
+              onChange={(event) => setCodexBaseUrl(event.target.value)}
+              onBlur={() => {
+                if (codexIsActive) void saveCodexBaseUrl();
+              }}
+              disabled={isUpdating("codex_asr_base_url")}
+              className="w-full rounded-lg border border-mid-gray/40 bg-mid-gray/10 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-logo-primary disabled:opacity-50"
+            />
+          </label>
+          {codexError && (
+            <p className="text-xs text-red-500" role="alert">
+              {codexError}
+            </p>
+          )}
+          <p className="text-xs text-text/45">
+            {t("settings.models.cloud.codex.setup")}
+          </p>
+        </div>
+      </section>
+
+      <div className="pt-2">
+        <h2 className="text-sm font-semibold">
+          {t("settings.models.local.title")}
+        </h2>
+      </div>
+
+      {/* Search bar — filter the local catalog by name or description */}
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text/40 pointer-events-none" />
         <input
