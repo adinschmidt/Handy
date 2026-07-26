@@ -151,8 +151,7 @@
       "translate": "영어로 번역",
       "streaming": "말하는 동안 실시간으로 음성 인식 결과를 표시"
     },
-    "legacy": "레거시",
-    "providerError": "Failed to switch transcription provider"
+    "legacy": "레거시"
   },
   "settings": {
     "modelSettings": {
@@ -238,32 +237,6 @@
       "rescan": {
         "label": "다시 스캔",
         "tooltip": "Handy 외부에서 모델 폴더 또는 Hugging Face 캐시에 추가된 모델을 다시 스캔합니다"
-      },
-      "cloud": {
-        "title": "Cloud",
-        "active": "Active",
-        "use": "Use",
-        "baseUrl": "Base URL",
-        "codex": {
-          "name": "Codex ASR",
-          "description": "Transcribe with a Codex ASR server running on this machine.",
-          "shortDescription": "Local HTTP server",
-          "setup": "Start codex-asr on loopback with --no-api-key before transcribing."
-        },
-        "invalidUrl": "Enter a valid Codex ASR server URL.",
-        "apiKey": "API key",
-        "elevenlabs": {
-          "name": "ElevenLabs Scribe",
-          "description": "Transcribe with the non-realtime Scribe v2 model and include detected audio events.",
-          "shortDescription": "Scribe v2 with audio events",
-          "model": "Scribe v2",
-          "audioEvents": "Audio-event tags enabled",
-          "keyRequired": "Enter an ElevenLabs API key before selecting this provider.",
-          "keySaveError": "Could not save the ElevenLabs API key."
-        }
-      },
-      "local": {
-        "title": "Local"
       }
     },
     "advanced": {
