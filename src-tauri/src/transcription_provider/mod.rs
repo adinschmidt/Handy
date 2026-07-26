@@ -14,14 +14,59 @@ pub enum TranscriptionMode {
     BatchOnly,
 }
 
-pub fn normalize_language(language: &str) -> Option<String> {
-    if language == "auto" {
-        return None;
+/// Private-use codepoints that bracket a protected span. Text cleanup only
+/// rewrites words and punctuation, so it leaves these untouched.
+fn protection_marker(index: usize) -> String {
+    format!("\u{e000}{index}\u{e001}")
+}
+
+/// Raw text from a cloud provider, plus any substrings that must reach the user
+/// verbatim. Providers hand this back instead of a finished `String` so that
+/// post-processing runs in exactly one place for every cloud target.
+#[derive(Debug)]
+pub(crate) struct ProviderTranscript {
+    text: String,
+    protected: Vec<String>,
+    appended: Vec<String>,
+}
+
+impl ProviderTranscript {
+    /// Output with nothing to shield from text cleanup.
+    pub(crate) fn plain(text: String) -> Self {
+        Self {
+            text,
+            protected: Vec::new(),
+            appended: Vec::new(),
+        }
     }
-    if language == "zh" || language.starts_with("zh-") {
-        return Some("zh".to_string());
+
+    /// Swap the first occurrence of `span` for a marker that survives cleanup.
+    /// A span the provider reported but that isn't present in the text verbatim
+    /// can't be located, so it is appended after cleanup instead of dropped.
+    pub(crate) fn protect(&mut self, span: String) {
+        let marker = protection_marker(self.protected.len());
+        if self.text.contains(&span) {
+            self.text = self.text.replacen(&span, &marker, 1);
+            self.protected.push(span);
+        } else {
+            self.appended.push(span);
+        }
     }
-    Some(language.split('-').next().unwrap_or(language).to_string())
+
+    /// Run text cleanup over the protected text, then restore the spans.
+    pub(crate) fn finish(self, settings: &AppSettings) -> String {
+        let mut cleaned = post_process_transcription_text(self.text, settings, false);
+        for (index, span) in self.protected.into_iter().enumerate() {
+            cleaned = cleaned.replace(&protection_marker(index), &span);
+        }
+        for span in self.appended {
+            if !cleaned.is_empty() {
+                cleaned.push(' ');
+            }
+            cleaned.push_str(&span);
+        }
+        cleaned
+    }
 }
 
 pub fn is_cloud_provider(settings: &AppSettings) -> bool {
@@ -45,12 +90,39 @@ pub fn prepare_local_model(app: &AppHandle, settings: &AppSettings) {
     }
 }
 
+async fn transcribe_cloud(
+    provider: TranscriptionProvider,
+    settings: &AppSettings,
+    samples: &[f32],
+) -> Result<ProviderTranscript> {
+    match provider {
+        TranscriptionProvider::CodexAsr => {
+            let language = codex::normalize_language(&settings.selected_language);
+            codex::transcribe(&settings.codex_asr_base_url, samples, language.as_deref()).await
+        }
+        TranscriptionProvider::ElevenlabsScribe => {
+            let language = elevenlabs::normalize_language(&settings.selected_language);
+            let api_key = settings
+                .transcription_api_keys
+                .get("elevenlabs_scribe")
+                .cloned()
+                .unwrap_or_default();
+            elevenlabs::transcribe(&api_key, samples, language.as_deref()).await
+        }
+        TranscriptionProvider::Local => Err(anyhow!("Local is not a cloud transcription provider")),
+    }
+}
+
 pub async fn transcribe_current_target(
     app: &AppHandle,
     settings: AppSettings,
     samples: Vec<f32>,
     mode: TranscriptionMode,
 ) -> Result<String> {
+    // The provider is resolved here, when the audio is complete, rather than
+    // when recording started. Switching providers mid-dictation is therefore
+    // honoured by the transcription that follows, at the cost of a plan
+    // (VAD policy, overlay style) that was chosen for the previous provider.
     match settings.selected_transcription_provider {
         TranscriptionProvider::Local => {
             let manager = Arc::clone(&app.state::<Arc<TranscriptionManager>>());
@@ -71,36 +143,54 @@ pub async fn transcribe_current_target(
             .await
             .map_err(|err| anyhow!("Transcription task panicked: {}", err))?
         }
-        TranscriptionProvider::CodexAsr => {
+        provider => {
+            // Cloud targets never consume a live stream, but one may still be
+            // running: the dictation can have started while Local was selected
+            // with a streaming model. Tear it down so its worker doesn't leak
+            // and block the next `start_stream`.
             app.state::<Arc<TranscriptionManager>>().cancel_stream();
-            let language = normalize_language(&settings.selected_language);
-            let raw =
-                codex::transcribe(&settings.codex_asr_base_url, &samples, language.as_deref())
-                    .await?;
-            Ok(post_process_transcription_text(raw, &settings, false))
-        }
-        TranscriptionProvider::ElevenlabsScribe => {
-            app.state::<Arc<TranscriptionManager>>().cancel_stream();
-            let language = elevenlabs::normalize_language(&settings.selected_language);
-            let api_key = settings
-                .transcription_api_keys
-                .get("elevenlabs_scribe")
-                .cloned()
-                .unwrap_or_default();
-            elevenlabs::transcribe(&api_key, &samples, language.as_deref(), &settings).await
+            let transcript = transcribe_cloud(provider, &settings, &samples).await?;
+            Ok(transcript.finish(&settings))
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::normalize_language;
+    use super::ProviderTranscript;
+    use crate::settings::AppSettings;
 
     #[test]
-    fn normalizes_provider_language_codes() {
-        assert_eq!(normalize_language("auto"), None);
-        assert_eq!(normalize_language("zh-Hant"), Some("zh".to_string()));
-        assert_eq!(normalize_language("en-US"), Some("en".to_string()));
-        assert_eq!(normalize_language("yue"), Some("yue".to_string()));
+    fn restores_protected_spans_after_cleanup() {
+        let mut settings = AppSettings::default();
+        settings.app_language = "en".to_string();
+        settings.custom_words = vec!["Handy".to_string()];
+
+        let mut transcript = ProviderTranscript::plain("handy um (applause)".to_string());
+        transcript.protect("(applause)".to_string());
+
+        assert_eq!(transcript.finish(&settings), "Handy (applause)");
+    }
+
+    #[test]
+    fn appends_spans_that_are_absent_from_the_text() {
+        let mut transcript =
+            ProviderTranscript::plain("A complete sentence with punctuation.".to_string());
+        transcript.protect("(applause)".to_string());
+
+        assert_eq!(
+            transcript.finish(&AppSettings::default()),
+            "A complete sentence with punctuation. (applause)"
+        );
+    }
+
+    #[test]
+    fn plain_output_is_only_post_processed() {
+        let mut settings = AppSettings::default();
+        settings.app_language = "en".to_string();
+        settings.custom_words = vec!["Handy".to_string()];
+
+        let transcript = ProviderTranscript::plain("handy um".to_string());
+        assert_eq!(transcript.finish(&settings), "Handy");
     }
 }

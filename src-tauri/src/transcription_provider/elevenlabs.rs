@@ -1,6 +1,5 @@
 use crate::audio_toolkit::encode_wav_bytes;
-use crate::managers::transcription::post_process_transcription_text;
-use crate::settings::AppSettings;
+use crate::transcription_provider::ProviderTranscript;
 use anyhow::{anyhow, Context, Result};
 use reqwest::multipart::{Form, Part};
 use serde::Deserialize;
@@ -116,46 +115,28 @@ struct ElevenLabsWord {
     word_type: String,
 }
 
-fn clean_response(response: ElevenLabsTranscriptionResponse, settings: &AppSettings) -> String {
-    let mut protected = response.text;
-    let mut protected_events = Vec::new();
-    let mut missing_events = Vec::new();
-
+/// Scribe reports detected non-speech sounds as `audio_event` words that are
+/// also inlined into `text`. Shield them so text cleanup, which is tuned for
+/// dictated speech, doesn't rewrite or strip them.
+fn to_transcript(response: ElevenLabsTranscriptionResponse) -> ProviderTranscript {
+    let mut transcript = ProviderTranscript::plain(response.text);
     for event in response
         .words
         .into_iter()
         .filter(|word| word.word_type == "audio_event")
         .map(|word| word.text)
     {
-        let marker = format!("\u{e000}{}\u{e001}", protected_events.len());
-        if protected.contains(&event) {
-            protected = protected.replacen(&event, &marker, 1);
-            protected_events.push(event);
-        } else {
-            missing_events.push(event);
-        }
+        transcript.protect(event);
     }
-
-    let mut cleaned = post_process_transcription_text(protected, settings, false);
-    for (index, event) in protected_events.into_iter().enumerate() {
-        cleaned = cleaned.replace(&format!("\u{e000}{index}\u{e001}"), &event);
-    }
-    for event in missing_events {
-        if !cleaned.is_empty() {
-            cleaned.push(' ');
-        }
-        cleaned.push_str(&event);
-    }
-    cleaned
+    transcript
 }
 
 pub async fn transcribe(
     api_key: &str,
     samples: &[f32],
     language: Option<&str>,
-    settings: &AppSettings,
-) -> Result<String> {
-    transcribe_at(API_BASE_URL, api_key, samples, language, settings).await
+) -> Result<ProviderTranscript> {
+    transcribe_at(API_BASE_URL, api_key, samples, language).await
 }
 
 async fn transcribe_at(
@@ -163,8 +144,7 @@ async fn transcribe_at(
     api_key: &str,
     samples: &[f32],
     language: Option<&str>,
-    settings: &AppSettings,
-) -> Result<String> {
+) -> Result<ProviderTranscript> {
     if api_key.trim().is_empty() {
         return Err(anyhow!(
             "ElevenLabs API key is required. Add it in Cloud transcription settings."
@@ -209,21 +189,23 @@ async fn transcribe_at(
         .json()
         .await
         .context("ElevenLabs returned an invalid speech-to-text response")?;
-    Ok(clean_response(response, settings))
+    Ok(to_transcript(response))
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        clean_response, normalize_language, transcribe_at, ElevenLabsTranscriptionResponse,
+        normalize_language, to_transcript, transcribe_at, ElevenLabsTranscriptionResponse,
         ElevenLabsWord,
     };
     use crate::settings::AppSettings;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
+    /// Only `audio_event` words are shielded; ordinary words and spacing stay
+    /// subject to normal text cleanup.
     #[test]
-    fn preserves_audio_events_through_text_cleanup() {
+    fn protects_audio_events_but_not_spoken_words() {
         let mut settings = AppSettings::default();
         settings.app_language = "en".to_string();
         settings.custom_words = vec!["Handy".to_string()];
@@ -253,21 +235,9 @@ mod tests {
             ],
         };
 
-        assert_eq!(clean_response(response, &settings), "Handy (applause)");
-    }
-
-    #[test]
-    fn preserves_canonical_text_when_word_entries_are_sparse() {
-        let response = ElevenLabsTranscriptionResponse {
-            text: "A complete sentence with punctuation.".to_string(),
-            words: vec![ElevenLabsWord {
-                text: "(applause)".to_string(),
-                word_type: "audio_event".to_string(),
-            }],
-        };
         assert_eq!(
-            clean_response(response, &AppSettings::default()),
-            "A complete sentence with punctuation. (applause)"
+            to_transcript(response).finish(&settings),
+            "Handy (applause)"
         );
     }
 
@@ -296,17 +266,13 @@ mod tests {
             .mount(&server)
             .await;
 
-        let settings = AppSettings::default();
-        let result = transcribe_at(
-            &server.uri(),
-            "test-secret-key",
-            &[0.0, 0.25],
-            Some("eng"),
-            &settings,
-        )
-        .await
-        .unwrap();
-        assert_eq!(result, "hello (applause)");
+        let transcript = transcribe_at(&server.uri(), "test-secret-key", &[0.0, 0.25], Some("eng"))
+            .await
+            .unwrap();
+        assert_eq!(
+            transcript.finish(&AppSettings::default()),
+            "hello (applause)"
+        );
 
         let requests = server.received_requests().await.unwrap();
         let request = &requests[0];
@@ -327,7 +293,7 @@ mod tests {
     #[tokio::test]
     async fn rejects_missing_key_without_sending_a_request() {
         let server = MockServer::start().await;
-        let error = transcribe_at(&server.uri(), " ", &[0.0], None, &AppSettings::default())
+        let error = transcribe_at(&server.uri(), " ", &[0.0], None)
             .await
             .unwrap_err()
             .to_string();
@@ -344,16 +310,10 @@ mod tests {
             .mount(&server)
             .await;
 
-        let error = transcribe_at(
-            &server.uri(),
-            "test-secret-key",
-            &[0.0],
-            None,
-            &AppSettings::default(),
-        )
-        .await
-        .unwrap_err()
-        .to_string();
+        let error = transcribe_at(&server.uri(), "test-secret-key", &[0.0], None)
+            .await
+            .unwrap_err()
+            .to_string();
         assert!(error.contains("HTTP 401"));
         assert!(!error.contains("test-secret-key"));
     }

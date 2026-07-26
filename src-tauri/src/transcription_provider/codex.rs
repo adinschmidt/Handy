@@ -1,4 +1,5 @@
 use crate::audio_toolkit::encode_wav_bytes;
+use crate::transcription_provider::ProviderTranscript;
 use anyhow::{anyhow, Context, Result};
 use reqwest::multipart::{Form, Part};
 use serde::Deserialize;
@@ -6,12 +7,28 @@ use std::time::Duration;
 
 const TRANSCRIPT_PATH: &str = "v1/audio/transcriptions";
 
+/// Reduce Handy's language selection to the ISO-639-1 code the OpenAI
+/// transcription API expects. `auto` means "let the server decide".
+pub(super) fn normalize_language(language: &str) -> Option<String> {
+    if language == "auto" {
+        return None;
+    }
+    if language == "zh" || language.starts_with("zh-") {
+        return Some("zh".to_string());
+    }
+    Some(language.split('-').next().unwrap_or(language).to_string())
+}
+
 #[derive(Deserialize)]
 struct CodexTranscriptionResponse {
     text: String,
 }
 
-pub async fn transcribe(base_url: &str, samples: &[f32], language: Option<&str>) -> Result<String> {
+pub async fn transcribe(
+    base_url: &str,
+    samples: &[f32],
+    language: Option<&str>,
+) -> Result<ProviderTranscript> {
     let wav = encode_wav_bytes(samples).context("Failed to encode recording as WAV")?;
     let file = Part::bytes(wav)
         .file_name("recording.wav")
@@ -55,14 +72,23 @@ pub async fn transcribe(base_url: &str, samples: &[f32], language: Option<&str>)
         .json()
         .await
         .context("Codex ASR returned an invalid JSON response")?;
-    Ok(response.text)
+    Ok(ProviderTranscript::plain(response.text))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::transcribe;
+    use super::{normalize_language, transcribe};
+    use crate::settings::AppSettings;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    #[test]
+    fn normalizes_language_codes_to_iso_639_1() {
+        assert_eq!(normalize_language("auto"), None);
+        assert_eq!(normalize_language("zh-Hant"), Some("zh".to_string()));
+        assert_eq!(normalize_language("en-US"), Some("en".to_string()));
+        assert_eq!(normalize_language("yue"), Some("yue".to_string()));
+    }
 
     #[tokio::test]
     async fn sends_openai_compatible_multipart_without_authorization() {
@@ -75,10 +101,13 @@ mod tests {
             .mount(&server)
             .await;
 
-        let text = transcribe(&server.uri(), &[0.0, 0.25, -0.25], Some("en"))
+        let transcript = transcribe(&server.uri(), &[0.0, 0.25, -0.25], Some("en"))
             .await
             .unwrap();
-        assert_eq!(text, "hello from codex");
+        assert_eq!(
+            transcript.finish(&AppSettings::default()),
+            "hello from codex"
+        );
 
         let requests = server.received_requests().await.unwrap();
         assert_eq!(requests.len(), 1);
