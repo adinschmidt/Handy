@@ -3,7 +3,6 @@ use crate::transcription_provider::ProviderTranscript;
 use anyhow::{anyhow, Context, Result};
 use reqwest::multipart::{Form, Part};
 use serde::Deserialize;
-use std::time::Duration;
 
 const TRANSCRIPT_PATH: &str = "v1/audio/transcriptions";
 
@@ -41,13 +40,8 @@ pub async fn transcribe(
         form = form.text("language", language.to_string());
     }
 
-    let client = reqwest::Client::builder()
-        .connect_timeout(Duration::from_secs(10))
-        .timeout(Duration::from_secs(310))
-        .build()
-        .context("Failed to create Codex ASR HTTP client")?;
     let endpoint = format!("{}/{}", base_url.trim_end_matches('/'), TRANSCRIPT_PATH);
-    let response = client
+    let response = super::http_client()?
         .post(&endpoint)
         .multipart(form)
         .send()

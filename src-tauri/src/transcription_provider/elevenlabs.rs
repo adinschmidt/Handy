@@ -3,7 +3,6 @@ use crate::transcription_provider::ProviderTranscript;
 use anyhow::{anyhow, Context, Result};
 use reqwest::multipart::{Form, Part};
 use serde::Deserialize;
-use std::time::Duration;
 
 const API_BASE_URL: &str = "https://api.elevenlabs.io";
 const TRANSCRIPT_PATH: &str = "v1/speech-to-text";
@@ -163,13 +162,8 @@ async fn transcribe_at(
         form = form.text("language_code", language.to_string());
     }
 
-    let client = reqwest::Client::builder()
-        .connect_timeout(Duration::from_secs(10))
-        .timeout(Duration::from_secs(310))
-        .build()
-        .context("Failed to create ElevenLabs HTTP client")?;
     let endpoint = format!("{}/{}", base_url.trim_end_matches('/'), TRANSCRIPT_PATH);
-    let response = client
+    let response = super::http_client()?
         .post(endpoint)
         .header("xi-api-key", api_key.trim())
         .multipart(form)

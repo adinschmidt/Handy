@@ -4,14 +4,38 @@ mod elevenlabs;
 use crate::managers::model::ModelManager;
 use crate::managers::transcription::{post_process_transcription_text, TranscriptionManager};
 use crate::settings::{AppSettings, TranscriptionProvider};
-use anyhow::{anyhow, Result};
-use std::sync::Arc;
+use anyhow::{anyhow, Context, Result};
+use std::sync::{Arc, OnceLock};
+use std::time::Duration;
 use tauri::{AppHandle, Manager};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TranscriptionMode {
     PreferActiveStream,
     BatchOnly,
+}
+
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+/// Deliberately generous: a multi-minute dictation uploaded over a slow link
+/// can legitimately take minutes end to end. Past this a request is wedged
+/// rather than slow, and an error serves the user better than waiting.
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(310);
+
+static HTTP_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+
+/// One client shared by every provider and every dictation. The client owns the
+/// connection pool and TLS session cache, so building a fresh one per request
+/// pays a full handshake on each dictation.
+pub(super) fn http_client() -> Result<&'static reqwest::Client> {
+    if let Some(client) = HTTP_CLIENT.get() {
+        return Ok(client);
+    }
+    let client = reqwest::Client::builder()
+        .connect_timeout(CONNECT_TIMEOUT)
+        .timeout(REQUEST_TIMEOUT)
+        .build()
+        .context("Failed to create the transcription HTTP client")?;
+    Ok(HTTP_CLIENT.get_or_init(|| client))
 }
 
 /// Private-use codepoints that bracket a protected span. Text cleanup only
