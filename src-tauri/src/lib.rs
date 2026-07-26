@@ -294,6 +294,14 @@ fn initialize_core_logic(app_handle: &AppHandle) {
                     log::error!("Failed to select Codex ASR via tray: {}", err);
                 }
             }
+            "provider_select:elevenlabs_scribe" => {
+                if let Err(err) = commands::transcription::set_transcription_provider(
+                    app.clone(),
+                    settings::TranscriptionProvider::ElevenlabsScribe,
+                ) {
+                    log::error!("Failed to select ElevenLabs Scribe via tray: {}", err);
+                }
+            }
             id if id.starts_with("model_select:") => {
                 let model_id = id.strip_prefix("model_select:").unwrap().to_string();
                 let settings = settings::get_settings(app);
@@ -714,6 +722,7 @@ pub fn run(cli_args: CliArgs) {
             commands::transcription::unload_model_manually,
             commands::transcription::set_transcription_provider,
             commands::transcription::change_codex_asr_base_url,
+            commands::transcription::change_transcription_api_key,
             commands::history::get_history_entries,
             commands::history::toggle_history_entry_saved,
             commands::history::get_audio_file_path,

@@ -31,9 +31,12 @@ export const ModelsSettings: React.FC = () => {
     isUpdating,
     setTranscriptionProvider,
     updateCodexAsrBaseUrl,
+    updateTranscriptionApiKey,
   } = useSettings();
   const [codexBaseUrl, setCodexBaseUrl] = useState("");
   const [codexError, setCodexError] = useState<string | null>(null);
+  const [elevenLabsApiKey, setElevenLabsApiKey] = useState("");
+  const [elevenLabsError, setElevenLabsError] = useState<string | null>(null);
   const [switchingModelId, setSwitchingModelId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [languageFilter, setLanguageFilter] = useState("all");
@@ -60,10 +63,17 @@ export const ModelsSettings: React.FC = () => {
 
   const activeProvider = settings?.selected_transcription_provider ?? "local";
   const codexIsActive = activeProvider === "codex_asr";
+  const elevenLabsIsActive = activeProvider === "elevenlabs_scribe";
 
   useEffect(() => {
     setCodexBaseUrl(settings?.codex_asr_base_url ?? "http://127.0.0.1:8788");
   }, [settings?.codex_asr_base_url]);
+
+  useEffect(() => {
+    setElevenLabsApiKey(
+      settings?.transcription_api_keys?.elevenlabs_scribe ?? "",
+    );
+  }, [settings?.transcription_api_keys?.elevenlabs_scribe]);
 
   // click outside handler for language dropdown
   useEffect(() => {
@@ -153,6 +163,32 @@ export const ModelsSettings: React.FC = () => {
       setCodexError(null);
     } catch {
       setCodexError(t("modelSelector.providerError"));
+    }
+  };
+
+  const saveElevenLabsApiKey = async (): Promise<boolean> => {
+    try {
+      await updateTranscriptionApiKey("elevenlabs_scribe", elevenLabsApiKey);
+      if (!elevenLabsApiKey.trim()) {
+        if (elevenLabsIsActive) await setTranscriptionProvider("local");
+        setElevenLabsError(null);
+        return false;
+      }
+      setElevenLabsError(null);
+      return true;
+    } catch {
+      setElevenLabsError(t("settings.models.cloud.elevenlabs.keySaveError"));
+      return false;
+    }
+  };
+
+  const handleElevenLabsSelect = async () => {
+    if (!(await saveElevenLabsApiKey())) return;
+    try {
+      await setTranscriptionProvider("elevenlabs_scribe");
+      setElevenLabsError(null);
+    } catch {
+      setElevenLabsError(t("modelSelector.providerError"));
     }
   };
 
@@ -328,6 +364,65 @@ export const ModelsSettings: React.FC = () => {
           <p className="text-xs text-text/45">
             {t("settings.models.cloud.codex.setup")}
           </p>
+        </div>
+
+        <div className="rounded-lg border border-mid-gray/30 bg-background p-4 space-y-3">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <div className="text-sm font-medium">
+                {t("settings.models.cloud.elevenlabs.name")}
+              </div>
+              <p className="mt-1 text-xs text-text/55">
+                {t("settings.models.cloud.elevenlabs.description")}
+              </p>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                <span className="rounded-full bg-mid-gray/15 px-2 py-0.5 text-[10px] font-medium text-text/60">
+                  {t("settings.models.cloud.elevenlabs.model")}
+                </span>
+                <span className="rounded-full bg-logo-primary/10 px-2 py-0.5 text-[10px] font-medium text-logo-primary">
+                  {t("settings.models.cloud.elevenlabs.audioEvents")}
+                </span>
+              </div>
+            </div>
+            <button
+              type="button"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => void handleElevenLabsSelect()}
+              disabled={
+                elevenLabsIsActive ||
+                !elevenLabsApiKey.trim() ||
+                isUpdating("selected_transcription_provider")
+              }
+              className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-default ${
+                elevenLabsIsActive
+                  ? "bg-logo-primary/15 text-logo-primary"
+                  : "bg-logo-primary text-white hover:bg-logo-primary/90 disabled:opacity-50"
+              }`}
+            >
+              {elevenLabsIsActive
+                ? t("settings.models.cloud.active")
+                : t("settings.models.cloud.use")}
+            </button>
+          </div>
+          <label className="block space-y-1.5">
+            <span className="text-xs font-medium text-text/65">
+              {t("settings.models.cloud.apiKey")}
+            </span>
+            <input
+              type="password"
+              value={elevenLabsApiKey}
+              onChange={(event) => setElevenLabsApiKey(event.target.value)}
+              onBlur={() => void saveElevenLabsApiKey()}
+              autoComplete="off"
+              disabled={isUpdating("transcription_api_key:elevenlabs_scribe")}
+              className="w-full rounded-lg border border-mid-gray/40 bg-mid-gray/10 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-logo-primary disabled:opacity-50"
+            />
+          </label>
+          {elevenLabsError && (
+            <p className="text-xs text-red-500" role="alert">
+              {elevenLabsError}
+            </p>
+          )}
         </div>
       </section>
 

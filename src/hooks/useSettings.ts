@@ -30,8 +30,14 @@ interface UseSettingsReturn {
   getSetting: <K extends keyof Settings>(key: K) => Settings[K] | undefined;
 
   // Transcription provider helpers
-  setTranscriptionProvider: (provider: "local" | "codex_asr") => Promise<void>;
+  setTranscriptionProvider: (
+    provider: "local" | "codex_asr" | "elevenlabs_scribe",
+  ) => Promise<void>;
   updateCodexAsrBaseUrl: (baseUrl: string) => Promise<void>;
+  updateTranscriptionApiKey: (
+    provider: "elevenlabs_scribe",
+    apiKey: string,
+  ) => Promise<void>;
 
   // Post-processing helpers
   setPostProcessProvider: (providerId: string) => Promise<void>;
@@ -75,6 +81,7 @@ export const useSettings = (): UseSettingsReturn => {
     getSetting: store.getSetting,
     setTranscriptionProvider: store.setTranscriptionProvider,
     updateCodexAsrBaseUrl: store.updateCodexAsrBaseUrl,
+    updateTranscriptionApiKey: store.updateTranscriptionApiKey,
     setPostProcessProvider: store.setPostProcessProvider,
     updatePostProcessBaseUrl: store.updatePostProcessBaseUrl,
     updatePostProcessApiKey: store.updatePostProcessApiKey,

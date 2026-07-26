@@ -38,6 +38,7 @@ test-results/
 blob-report/
 
 .direnv
+.env
 .envrc
 
 # Nix build output

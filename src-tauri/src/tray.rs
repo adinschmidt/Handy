@@ -223,6 +223,7 @@ pub fn update_tray_menu(app: &AppHandle, locale: Option<&str>) {
 
     let submenu_label = match settings.selected_transcription_provider {
         settings::TranscriptionProvider::CodexAsr => "Codex ASR".to_string(),
+        settings::TranscriptionProvider::ElevenlabsScribe => "ElevenLabs Scribe".to_string(),
         settings::TranscriptionProvider::Local => downloaded
             .iter()
             .find(|m| m.id == *current_model_id)
@@ -258,6 +259,21 @@ pub fn update_tray_menu(app: &AppHandle, locale: Option<&str>) {
         )
         .expect("failed to create Codex ASR provider item");
         let _ = submenu.append(&codex);
+        let elevenlabs_configured = settings
+            .transcription_api_keys
+            .get("elevenlabs_scribe")
+            .is_some_and(|key| !key.trim().is_empty());
+        let elevenlabs = CheckMenuItem::with_id(
+            app,
+            "provider_select:elevenlabs_scribe",
+            "ElevenLabs Scribe",
+            elevenlabs_configured,
+            settings.selected_transcription_provider
+                == settings::TranscriptionProvider::ElevenlabsScribe,
+            None::<&str>,
+        )
+        .expect("failed to create ElevenLabs Scribe provider item");
+        let _ = submenu.append(&elevenlabs);
 
         submenu
     };

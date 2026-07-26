@@ -9,15 +9,17 @@ import {
 interface ModelDropdownProps {
   models: ModelInfo[];
   currentModelId: string;
-  activeProvider: "local" | "codex_asr";
+  activeProvider: "local" | "codex_asr" | "elevenlabs_scribe";
+  elevenLabsConfigured: boolean;
   onModelSelect: (modelId: string) => void;
-  onProviderSelect: (provider: "codex_asr") => void;
+  onProviderSelect: (provider: "codex_asr" | "elevenlabs_scribe") => void;
 }
 
 const ModelDropdown: React.FC<ModelDropdownProps> = ({
   models,
   currentModelId,
   activeProvider,
+  elevenLabsConfigured,
   onModelSelect,
   onProviderSelect,
 }) => {
@@ -112,6 +114,37 @@ const ModelDropdown: React.FC<ModelDropdownProps> = ({
             </div>
           </div>
           {activeProvider === "codex_asr" && (
+            <div className="text-xs text-logo-primary">
+              {t("modelSelector.active")}
+            </div>
+          )}
+        </div>
+      </button>
+      <button
+        type="button"
+        onClick={() => onProviderSelect("elevenlabs_scribe")}
+        disabled={!elevenLabsConfigured}
+        title={
+          elevenLabsConfigured
+            ? undefined
+            : t("settings.models.cloud.elevenlabs.keyRequired")
+        }
+        className={`w-full px-3 py-2 text-start hover:bg-mid-gray/10 transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+          activeProvider === "elevenlabs_scribe"
+            ? "bg-logo-primary/10 text-logo-primary"
+            : ""
+        }`}
+      >
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="text-sm text-text/80">
+              {t("settings.models.cloud.elevenlabs.name")}
+            </div>
+            <div className="text-xs text-text/40 italic pe-4">
+              {t("settings.models.cloud.elevenlabs.shortDescription")}
+            </div>
+          </div>
+          {activeProvider === "elevenlabs_scribe" && (
             <div className="text-xs text-logo-primary">
               {t("modelSelector.active")}
             </div>

@@ -159,7 +159,9 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onError }) => {
     }
   };
 
-  const handleProviderSelect = async (provider: "codex_asr") => {
+  const handleProviderSelect = async (
+    provider: "codex_asr" | "elevenlabs_scribe",
+  ) => {
     setShowModelDropdown(false);
     setModelError(null);
     try {
@@ -175,6 +177,9 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onError }) => {
   const getModelDisplayText = (): string => {
     if (activeProvider === "codex_asr") {
       return t("settings.models.cloud.codex.name");
+    }
+    if (activeProvider === "elevenlabs_scribe") {
+      return t("settings.models.cloud.elevenlabs.name");
     }
 
     const verifyingKeys = Object.keys(verifyingModels);
@@ -283,6 +288,9 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onError }) => {
             models={models}
             currentModelId={displayModelId}
             activeProvider={activeProvider}
+            elevenLabsConfigured={Boolean(
+              settings?.transcription_api_keys?.elevenlabs_scribe?.trim(),
+            )}
             onModelSelect={handleModelSelect}
             onProviderSelect={handleProviderSelect}
           />

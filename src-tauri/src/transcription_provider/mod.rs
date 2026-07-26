@@ -1,4 +1,5 @@
 mod codex;
+mod elevenlabs;
 
 use crate::managers::model::ModelManager;
 use crate::managers::transcription::{post_process_transcription_text, TranscriptionManager};
@@ -77,6 +78,16 @@ pub async fn transcribe_current_target(
                 codex::transcribe(&settings.codex_asr_base_url, &samples, language.as_deref())
                     .await?;
             Ok(post_process_transcription_text(raw, &settings, false))
+        }
+        TranscriptionProvider::ElevenlabsScribe => {
+            app.state::<Arc<TranscriptionManager>>().cancel_stream();
+            let language = elevenlabs::normalize_language(&settings.selected_language);
+            let api_key = settings
+                .transcription_api_keys
+                .get("elevenlabs_scribe")
+                .cloned()
+                .unwrap_or_default();
+            elevenlabs::transcribe(&api_key, &samples, language.as_deref(), &settings).await
         }
     }
 }

@@ -47,6 +47,14 @@ pub fn set_transcription_provider(
     provider: TranscriptionProvider,
 ) -> Result<(), String> {
     let mut settings = get_settings(&app);
+    if provider == TranscriptionProvider::ElevenlabsScribe
+        && settings
+            .transcription_api_keys
+            .get("elevenlabs_scribe")
+            .is_none_or(|key| key.trim().is_empty())
+    {
+        return Err("ElevenLabs API key is required".to_string());
+    }
     settings.selected_transcription_provider = provider;
     write_settings(&app, settings.clone());
 
@@ -57,7 +65,7 @@ pub fn set_transcription_provider(
                 manager.initiate_model_load();
             }
         }
-        TranscriptionProvider::CodexAsr => {
+        TranscriptionProvider::CodexAsr | TranscriptionProvider::ElevenlabsScribe => {
             manager
                 .unload_model()
                 .map_err(|err| format!("Failed to unload local model: {}", err))?;
@@ -100,6 +108,26 @@ pub fn change_codex_asr_base_url(app: AppHandle, base_url: String) -> Result<(),
     let mut settings = get_settings(&app);
     settings.codex_asr_base_url = normalized;
     write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_transcription_api_key(
+    app: AppHandle,
+    provider: TranscriptionProvider,
+    api_key: String,
+) -> Result<(), String> {
+    let provider_id = match provider {
+        TranscriptionProvider::ElevenlabsScribe => "elevenlabs_scribe",
+        _ => return Err("This transcription provider does not use an API key".to_string()),
+    };
+    let mut settings = get_settings(&app);
+    settings
+        .transcription_api_keys
+        .insert(provider_id.to_string(), api_key.trim().to_string());
+    write_settings(&app, settings);
+    crate::tray::update_tray_menu(&app, None);
     Ok(())
 }
 

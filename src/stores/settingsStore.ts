@@ -36,8 +36,14 @@ interface SettingsStore {
   isUpdatingKey: (key: string) => boolean;
   playTestSound: (soundType: "start" | "stop") => Promise<void>;
   checkCustomSounds: () => Promise<void>;
-  setTranscriptionProvider: (provider: "local" | "codex_asr") => Promise<void>;
+  setTranscriptionProvider: (
+    provider: "local" | "codex_asr" | "elevenlabs_scribe",
+  ) => Promise<void>;
   updateCodexAsrBaseUrl: (baseUrl: string) => Promise<void>;
+  updateTranscriptionApiKey: (
+    provider: "elevenlabs_scribe",
+    apiKey: string,
+  ) => Promise<void>;
   setPostProcessProvider: (providerId: string) => Promise<void>;
   updatePostProcessSetting: (
     settingType: "base_url" | "api_key" | "model",
@@ -458,6 +464,52 @@ export const useSettingsStore = create<SettingsStore>()(
         set((state) => ({
           settings: state.settings
             ? { ...state.settings, codex_asr_base_url: previous }
+            : null,
+        }));
+        throw error;
+      } finally {
+        setUpdating(updateKey, false);
+      }
+    },
+
+    updateTranscriptionApiKey: async (provider, apiKey) => {
+      const { settings, setUpdating, refreshSettings } = get();
+      const updateKey = `transcription_api_key:${provider}`;
+      const previous = settings?.transcription_api_keys?.[provider] ?? "";
+
+      setUpdating(updateKey, true);
+      if (settings) {
+        set((state) => ({
+          settings: state.settings
+            ? {
+                ...state.settings,
+                transcription_api_keys: {
+                  ...state.settings.transcription_api_keys,
+                  [provider]: apiKey,
+                },
+              }
+            : null,
+        }));
+      }
+
+      try {
+        const result = await commands.changeTranscriptionApiKey(
+          provider,
+          apiKey,
+        );
+        if (result.status === "error") throw new Error(result.error);
+        await refreshSettings();
+      } catch (error) {
+        console.error("Failed to update transcription API key:", error);
+        set((state) => ({
+          settings: state.settings
+            ? {
+                ...state.settings,
+                transcription_api_keys: {
+                  ...state.settings.transcription_api_keys,
+                  [provider]: previous,
+                },
+              }
             : null,
         }));
         throw error;

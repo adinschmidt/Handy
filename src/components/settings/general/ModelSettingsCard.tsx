@@ -17,9 +17,13 @@ export const ModelSettingsCard: React.FC = () => {
   const { currentModel, models } = useModelStore();
   const activeProvider = settings?.selected_transcription_provider ?? "local";
 
-  if (activeProvider === "codex_asr") {
+  if (activeProvider !== "local") {
+    const titleKey =
+      activeProvider === "codex_asr"
+        ? "settings.models.cloud.codex.name"
+        : "settings.models.cloud.elevenlabs.name";
     return (
-      <SettingsGroup title={t("settings.models.cloud.codex.name")}>
+      <SettingsGroup title={t(titleKey)}>
         <LanguageSelector descriptionMode="tooltip" grouped={true} />
       </SettingsGroup>
     );
