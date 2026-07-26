@@ -400,6 +400,10 @@ pub struct AppSettings {
     /// nothing pre-seeds a blank key.
     #[serde(default)]
     pub transcription_api_keys: SecretMap,
+    /// Ask ElevenLabs Scribe to tag detected non-speech sounds (`(applause)`,
+    /// `(laughter)`) and keep them in the transcript.
+    #[serde(default = "default_elevenlabs_audio_events")]
+    pub elevenlabs_audio_events: bool,
     #[serde(default)]
     pub onboarding_completed: bool,
     #[serde(default = "default_always_on_microphone")]
@@ -501,6 +505,10 @@ fn default_model() -> String {
 
 fn default_codex_asr_base_url() -> String {
     "http://127.0.0.1:8788".to_string()
+}
+
+fn default_elevenlabs_audio_events() -> bool {
+    true
 }
 
 const CURRENT_SETTINGS_SCHEMA_VERSION: u32 = 1;
@@ -885,6 +893,7 @@ pub fn get_default_settings() -> AppSettings {
         selected_transcription_provider: TranscriptionProvider::Local,
         codex_asr_base_url: default_codex_asr_base_url(),
         transcription_api_keys: SecretMap::default(),
+        elevenlabs_audio_events: default_elevenlabs_audio_events(),
         onboarding_completed: false,
         always_on_microphone: false,
         selected_microphone: None,

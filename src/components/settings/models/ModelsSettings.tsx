@@ -12,6 +12,7 @@ import {
 } from "@/lib/constants/languages.ts";
 import type { ModelInfo } from "@/bindings";
 import { useSettings } from "@/hooks/useSettings";
+import { ToggleSwitch } from "@/components/ui/ToggleSwitch";
 
 // check if model supports a language based on its supported_languages list
 const modelSupportsLanguage = (model: ModelInfo, langCode: string): boolean => {
@@ -29,6 +30,8 @@ export const ModelsSettings: React.FC = () => {
   const {
     settings,
     isUpdating,
+    getSetting,
+    updateSetting,
     setTranscriptionProvider,
     updateCodexAsrBaseUrl,
     updateTranscriptionApiKey,
@@ -411,9 +414,6 @@ export const ModelsSettings: React.FC = () => {
                 <span className="rounded-full bg-mid-gray/15 px-2 py-0.5 text-[10px] font-medium text-text/60">
                   {t("settings.models.cloud.elevenlabs.model")}
                 </span>
-                <span className="rounded-full bg-logo-primary/10 px-2 py-0.5 text-[10px] font-medium text-logo-primary">
-                  {t("settings.models.cloud.elevenlabs.audioEvents")}
-                </span>
               </div>
             </div>
             <button
@@ -450,6 +450,18 @@ export const ModelsSettings: React.FC = () => {
               className="w-full rounded-lg border border-mid-gray/40 bg-mid-gray/10 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-logo-primary disabled:opacity-50"
             />
           </label>
+          <ToggleSwitch
+            checked={getSetting("elevenlabs_audio_events") ?? true}
+            onChange={(enabled) =>
+              updateSetting("elevenlabs_audio_events", enabled)
+            }
+            isUpdating={isUpdating("elevenlabs_audio_events")}
+            label={t("settings.models.cloud.elevenlabs.audioEvents")}
+            description={t(
+              "settings.models.cloud.elevenlabs.audioEventsDescription",
+            )}
+            descriptionMode="inline"
+          />
           {elevenLabsError && (
             <p className="text-xs text-red-500" role="alert">
               {elevenLabsError}

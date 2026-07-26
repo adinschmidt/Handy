@@ -232,12 +232,13 @@
         "apiKey": "API key",
         "elevenlabs": {
           "name": "ElevenLabs Scribe",
-          "description": "Transcribe with the non-realtime Scribe v2 model and include detected audio events.",
-          "shortDescription": "Scribe v2 with audio events",
+          "description": "Transcribe with the non-realtime Scribe v2 model.",
+          "shortDescription": "Scribe v2",
           "model": "Scribe v2",
-          "audioEvents": "Audio-event tags enabled",
+          "audioEvents": "Tag audio events",
           "keyRequired": "Enter an ElevenLabs API key before selecting this provider.",
-          "keySaveError": "Could not save the ElevenLabs API key."
+          "keySaveError": "Could not save the ElevenLabs API key.",
+          "audioEventsDescription": "Keep detected non-speech sounds, like (applause) or (laughter), in the transcript."
         },
         "apiKeyOptional": "API key (optional)"
       },

@@ -133,7 +133,13 @@ async fn transcribe_cloud(
         TranscriptionProvider::ElevenlabsScribe => {
             let language = elevenlabs::normalize_language(&settings.selected_language);
             let api_key = settings.transcription_api_key(provider).unwrap_or_default();
-            elevenlabs::transcribe(api_key, samples, language.as_deref()).await
+            elevenlabs::transcribe(
+                api_key,
+                samples,
+                language.as_deref(),
+                settings.elevenlabs_audio_events,
+            )
+            .await
         }
         TranscriptionProvider::Local => Err(anyhow!("Local is not a cloud transcription provider")),
     }

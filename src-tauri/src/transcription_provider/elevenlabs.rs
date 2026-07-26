@@ -134,8 +134,9 @@ pub async fn transcribe(
     api_key: &str,
     samples: &[f32],
     language: Option<&str>,
+    tag_audio_events: bool,
 ) -> Result<ProviderTranscript> {
-    transcribe_at(API_BASE_URL, api_key, samples, language).await
+    transcribe_at(API_BASE_URL, api_key, samples, language, tag_audio_events).await
 }
 
 async fn transcribe_at(
@@ -143,6 +144,7 @@ async fn transcribe_at(
     api_key: &str,
     samples: &[f32],
     language: Option<&str>,
+    tag_audio_events: bool,
 ) -> Result<ProviderTranscript> {
     if api_key.trim().is_empty() {
         return Err(anyhow!(
@@ -157,7 +159,10 @@ async fn transcribe_at(
     let mut form = Form::new()
         .part("file", file)
         .text("model_id", MODEL_ID)
-        .text("tag_audio_events", "true");
+        .text(
+            "tag_audio_events",
+            if tag_audio_events { "true" } else { "false" },
+        );
     if let Some(language) = language {
         form = form.text("language_code", language.to_string());
     }
@@ -237,6 +242,27 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn asks_the_api_to_drop_audio_events_when_tagging_is_off() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/speech-to-text"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({"text": "hello"})),
+            )
+            .mount(&server)
+            .await;
+
+        transcribe_at(&server.uri(), "test-secret-key", &[0.0], None, false)
+            .await
+            .unwrap();
+
+        let requests = server.received_requests().await.unwrap();
+        let body = String::from_utf8_lossy(&requests[0].body);
+        assert!(body.contains("name=\"tag_audio_events\""));
+        assert!(body.contains("false"));
+    }
+
     #[test]
     fn maps_only_supported_scribe_languages() {
         assert_eq!(normalize_language("en-US"), Some("eng".to_string()));
@@ -262,9 +288,15 @@ mod tests {
             .mount(&server)
             .await;
 
-        let transcript = transcribe_at(&server.uri(), "test-secret-key", &[0.0, 0.25], Some("eng"))
-            .await
-            .unwrap();
+        let transcript = transcribe_at(
+            &server.uri(),
+            "test-secret-key",
+            &[0.0, 0.25],
+            Some("eng"),
+            true,
+        )
+        .await
+        .unwrap();
         assert_eq!(
             transcript.finish(&AppSettings::default()),
             "hello (applause)"
@@ -289,7 +321,7 @@ mod tests {
     #[tokio::test]
     async fn rejects_missing_key_without_sending_a_request() {
         let server = MockServer::start().await;
-        let error = transcribe_at(&server.uri(), " ", &[0.0], None)
+        let error = transcribe_at(&server.uri(), " ", &[0.0], None, true)
             .await
             .unwrap_err()
             .to_string();
@@ -306,7 +338,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        let error = transcribe_at(&server.uri(), "test-secret-key", &[0.0], None)
+        let error = transcribe_at(&server.uri(), "test-secret-key", &[0.0], None, true)
             .await
             .unwrap_err()
             .to_string();
