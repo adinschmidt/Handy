@@ -122,16 +122,18 @@ async fn transcribe_cloud(
     match provider {
         TranscriptionProvider::CodexAsr => {
             let language = codex::normalize_language(&settings.selected_language);
-            codex::transcribe(&settings.codex_asr_base_url, samples, language.as_deref()).await
+            codex::transcribe(
+                &settings.codex_asr_base_url,
+                settings.transcription_api_key(provider),
+                samples,
+                language.as_deref(),
+            )
+            .await
         }
         TranscriptionProvider::ElevenlabsScribe => {
             let language = elevenlabs::normalize_language(&settings.selected_language);
-            let api_key = settings
-                .transcription_api_keys
-                .get("elevenlabs_scribe")
-                .cloned()
-                .unwrap_or_default();
-            elevenlabs::transcribe(&api_key, samples, language.as_deref()).await
+            let api_key = settings.transcription_api_key(provider).unwrap_or_default();
+            elevenlabs::transcribe(api_key, samples, language.as_deref()).await
         }
         TranscriptionProvider::Local => Err(anyhow!("Local is not a cloud transcription provider")),
     }
@@ -186,9 +188,11 @@ mod tests {
 
     #[test]
     fn restores_protected_spans_after_cleanup() {
-        let mut settings = AppSettings::default();
-        settings.app_language = "en".to_string();
-        settings.custom_words = vec!["Handy".to_string()];
+        let settings = AppSettings {
+            app_language: "en".to_string(),
+            custom_words: vec!["Handy".to_string()],
+            ..AppSettings::default()
+        };
 
         let mut transcript = ProviderTranscript::plain("handy um (applause)".to_string());
         transcript.protect("(applause)".to_string());
@@ -210,9 +214,11 @@ mod tests {
 
     #[test]
     fn plain_output_is_only_post_processed() {
-        let mut settings = AppSettings::default();
-        settings.app_language = "en".to_string();
-        settings.custom_words = vec!["Handy".to_string()];
+        let settings = AppSettings {
+            app_language: "en".to_string(),
+            custom_words: vec!["Handy".to_string()],
+            ..AppSettings::default()
+        };
 
         let transcript = ProviderTranscript::plain("handy um".to_string());
         assert_eq!(transcript.finish(&settings), "Handy");

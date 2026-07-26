@@ -223,11 +223,12 @@
         "baseUrl": "Base URL",
         "codex": {
           "name": "Codex ASR",
-          "description": "Transcribe with a Codex ASR server running on this machine.",
-          "shortDescription": "Local HTTP server",
-          "setup": "Start codex-asr on loopback with --no-api-key before transcribing."
+          "description": "Transcribe with a Codex ASR server, running on this machine or reachable over the network.",
+          "shortDescription": "OpenAI-compatible server",
+          "setup": "Point Handy at the server's base URL. Leave the API key empty if the server doesn't require one.",
+          "keySaveError": "Could not save the Codex ASR API key."
         },
-        "invalidUrl": "Enter a valid Codex ASR server URL.",
+        "invalidUrl": "Enter a valid Codex ASR server URL (http or https, no query or fragment).",
         "apiKey": "API key",
         "elevenlabs": {
           "name": "ElevenLabs Scribe",
@@ -237,7 +238,8 @@
           "audioEvents": "Audio-event tags enabled",
           "keyRequired": "Enter an ElevenLabs API key before selecting this provider.",
           "keySaveError": "Could not save the ElevenLabs API key."
-        }
+        },
+        "apiKeyOptional": "API key (optional)"
       },
       "local": {
         "title": "Local"

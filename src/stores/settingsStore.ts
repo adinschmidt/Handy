@@ -41,7 +41,7 @@ interface SettingsStore {
   ) => Promise<void>;
   updateCodexAsrBaseUrl: (baseUrl: string) => Promise<void>;
   updateTranscriptionApiKey: (
-    provider: "elevenlabs_scribe",
+    provider: "codex_asr" | "elevenlabs_scribe",
     apiKey: string,
   ) => Promise<void>;
   setPostProcessProvider: (providerId: string) => Promise<void>;

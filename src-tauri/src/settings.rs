@@ -115,6 +115,18 @@ pub enum TranscriptionProvider {
     ElevenlabsScribe,
 }
 
+impl TranscriptionProvider {
+    /// Key this provider's credential is stored under in
+    /// [`AppSettings::transcription_api_keys`]. Local inference needs none.
+    pub fn api_key_id(self) -> Option<&'static str> {
+        match self {
+            TranscriptionProvider::Local => None,
+            TranscriptionProvider::CodexAsr => Some("codex_asr"),
+            TranscriptionProvider::ElevenlabsScribe => Some("elevenlabs_scribe"),
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
 #[serde(rename_all = "lowercase")]
 pub enum OverlayPosition {
@@ -947,6 +959,16 @@ impl AppSettings {
         self.post_process_providers
             .iter_mut()
             .find(|provider| provider.id == provider_id)
+    }
+
+    /// Credential configured for `provider`, if any. A missing entry and a
+    /// blank one both mean "unconfigured".
+    pub fn transcription_api_key(&self, provider: TranscriptionProvider) -> Option<&str> {
+        let key = self
+            .transcription_api_keys
+            .get(provider.api_key_id()?)?
+            .trim();
+        (!key.is_empty()).then_some(key)
     }
 }
 

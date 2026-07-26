@@ -260,9 +260,8 @@ pub fn update_tray_menu(app: &AppHandle, locale: Option<&str>) {
         .expect("failed to create Codex ASR provider item");
         let _ = submenu.append(&codex);
         let elevenlabs_configured = settings
-            .transcription_api_keys
-            .get("elevenlabs_scribe")
-            .is_some_and(|key| !key.trim().is_empty());
+            .transcription_api_key(settings::TranscriptionProvider::ElevenlabsScribe)
+            .is_some();
         let elevenlabs = CheckMenuItem::with_id(
             app,
             "provider_select:elevenlabs_scribe",

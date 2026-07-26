@@ -47,11 +47,9 @@ pub fn set_transcription_provider(
     provider: TranscriptionProvider,
 ) -> Result<(), String> {
     let mut settings = get_settings(&app);
+    // Codex ASR authentication is optional, so only ElevenLabs is gated here.
     if provider == TranscriptionProvider::ElevenlabsScribe
-        && settings
-            .transcription_api_keys
-            .get("elevenlabs_scribe")
-            .is_none_or(|key| key.trim().is_empty())
+        && settings.transcription_api_key(provider).is_none()
     {
         return Err("ElevenLabs API key is required".to_string());
     }
@@ -87,16 +85,15 @@ fn normalize_codex_base_url(base_url: &str) -> Result<String, String> {
     if parsed.scheme() != "http" && parsed.scheme() != "https" {
         return Err("Codex ASR URL must use http or https".to_string());
     }
-    if !parsed.username().is_empty()
-        || parsed.password().is_some()
-        || parsed.query().is_some()
-        || parsed.fragment().is_some()
-        || !matches!(parsed.path(), "" | "/")
-    {
-        return Err(
-            "Codex ASR URL must be an origin without credentials, path, query, or fragment"
-                .to_string(),
-        );
+    // A base path is fine -- the server may sit behind a reverse proxy. A query
+    // or fragment is not: the transcription path is appended to this value, so
+    // either one would produce a malformed endpoint. Credentials belong in the
+    // API key setting, where they are stored redacted.
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return Err("Codex ASR URL must not embed credentials; use the API key field".to_string());
+    }
+    if parsed.query().is_some() || parsed.fragment().is_some() {
+        return Err("Codex ASR URL must not contain a query or fragment".to_string());
     }
     Ok(normalized)
 }
@@ -118,10 +115,9 @@ pub fn change_transcription_api_key(
     provider: TranscriptionProvider,
     api_key: String,
 ) -> Result<(), String> {
-    let provider_id = match provider {
-        TranscriptionProvider::ElevenlabsScribe => "elevenlabs_scribe",
-        _ => return Err("This transcription provider does not use an API key".to_string()),
-    };
+    let provider_id = provider
+        .api_key_id()
+        .ok_or_else(|| "This transcription provider does not use an API key".to_string())?;
     let mut settings = get_settings(&app);
     settings
         .transcription_api_keys
@@ -140,6 +136,11 @@ mod tests {
         assert_eq!(
             normalize_codex_base_url(" http://127.0.0.1:8788/ ").unwrap(),
             "http://127.0.0.1:8788"
+        );
+        // A reverse-proxied server under a base path is a supported setup.
+        assert_eq!(
+            normalize_codex_base_url("https://asr.example.com/codex/").unwrap(),
+            "https://asr.example.com/codex"
         );
         assert!(normalize_codex_base_url("").is_err());
         assert!(normalize_codex_base_url("file:///tmp/codex").is_err());

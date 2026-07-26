@@ -34,6 +34,7 @@ export const ModelsSettings: React.FC = () => {
     updateTranscriptionApiKey,
   } = useSettings();
   const [codexBaseUrl, setCodexBaseUrl] = useState("");
+  const [codexApiKey, setCodexApiKey] = useState("");
   const [codexError, setCodexError] = useState<string | null>(null);
   const [elevenLabsApiKey, setElevenLabsApiKey] = useState("");
   const [elevenLabsError, setElevenLabsError] = useState<string | null>(null);
@@ -68,6 +69,10 @@ export const ModelsSettings: React.FC = () => {
   useEffect(() => {
     setCodexBaseUrl(settings?.codex_asr_base_url ?? "http://127.0.0.1:8788");
   }, [settings?.codex_asr_base_url]);
+
+  useEffect(() => {
+    setCodexApiKey(settings?.transcription_api_keys?.codex_asr ?? "");
+  }, [settings?.transcription_api_keys?.codex_asr]);
 
   useEffect(() => {
     setElevenLabsApiKey(
@@ -156,8 +161,18 @@ export const ModelsSettings: React.FC = () => {
     }
   };
 
+  const saveCodexApiKey = async () => {
+    try {
+      await updateTranscriptionApiKey("codex_asr", codexApiKey);
+      setCodexError(null);
+    } catch {
+      setCodexError(t("settings.models.cloud.codex.keySaveError"));
+    }
+  };
+
   const handleCodexSelect = async () => {
     if (!(await saveCodexBaseUrl())) return;
+    await saveCodexApiKey();
     try {
       await setTranscriptionProvider("codex_asr");
       setCodexError(null);
@@ -326,6 +341,9 @@ export const ModelsSettings: React.FC = () => {
             </div>
             <button
               type="button"
+              // Keep focus in the field the user was editing so its onBlur
+              // save doesn't race the click that activates the provider.
+              onMouseDown={(event) => event.preventDefault()}
               onClick={() => void handleCodexSelect()}
               disabled={
                 codexIsActive || isUpdating("selected_transcription_provider")
@@ -353,6 +371,20 @@ export const ModelsSettings: React.FC = () => {
                 if (codexIsActive) void saveCodexBaseUrl();
               }}
               disabled={isUpdating("codex_asr_base_url")}
+              className="w-full rounded-lg border border-mid-gray/40 bg-mid-gray/10 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-logo-primary disabled:opacity-50"
+            />
+          </label>
+          <label className="block space-y-1.5">
+            <span className="text-xs font-medium text-text/65">
+              {t("settings.models.cloud.apiKeyOptional")}
+            </span>
+            <input
+              type="password"
+              value={codexApiKey}
+              onChange={(event) => setCodexApiKey(event.target.value)}
+              onBlur={() => void saveCodexApiKey()}
+              autoComplete="off"
+              disabled={isUpdating("transcription_api_key:codex_asr")}
               className="w-full rounded-lg border border-mid-gray/40 bg-mid-gray/10 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-logo-primary disabled:opacity-50"
             />
           </label>

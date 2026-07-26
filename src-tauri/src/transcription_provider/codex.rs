@@ -2,6 +2,7 @@ use crate::audio_toolkit::encode_wav_bytes;
 use crate::transcription_provider::ProviderTranscript;
 use anyhow::{anyhow, Context, Result};
 use reqwest::multipart::{Form, Part};
+use reqwest::StatusCode;
 use serde::Deserialize;
 
 const TRANSCRIPT_PATH: &str = "v1/audio/transcriptions";
@@ -25,6 +26,7 @@ struct CodexTranscriptionResponse {
 
 pub async fn transcribe(
     base_url: &str,
+    api_key: Option<&str>,
     samples: &[f32],
     language: Option<&str>,
 ) -> Result<ProviderTranscript> {
@@ -41,25 +43,28 @@ pub async fn transcribe(
     }
 
     let endpoint = format!("{}/{}", base_url.trim_end_matches('/'), TRANSCRIPT_PATH);
-    let response = super::http_client()?
-        .post(&endpoint)
-        .multipart(form)
-        .send()
-        .await
-        .map_err(|err| {
-            anyhow!(
-                "Could not reach Codex ASR at {}: {}. Start codex-asr with --no-api-key.",
-                base_url,
-                err
-            )
-        })?;
+    let mut request = super::http_client()?.post(&endpoint).multipart(form);
+    if let Some(api_key) = api_key {
+        request = request.bearer_auth(api_key);
+    }
+    let response = request.send().await.map_err(|err| {
+        anyhow!(
+            "Could not reach Codex ASR at {}: {}. Confirm the server is running.",
+            base_url,
+            err
+        )
+    })?;
 
     let status = response.status();
     if !status.is_success() {
-        return Err(anyhow!(
-            "Codex ASR returned HTTP {}. Confirm the server is running with --no-api-key.",
-            status
-        ));
+        // The server may or may not require a key, so point at the setting
+        // rather than at a specific way of starting it.
+        let hint = if status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN {
+            " Check the API key in Cloud transcription settings."
+        } else {
+            ""
+        };
+        return Err(anyhow!("Codex ASR returned HTTP {}.{}", status, hint));
     }
 
     let response: CodexTranscriptionResponse = response
@@ -95,7 +100,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        let transcript = transcribe(&server.uri(), &[0.0, 0.25, -0.25], Some("en"))
+        let transcript = transcribe(&server.uri(), None, &[0.0, 0.25, -0.25], Some("en"))
             .await
             .unwrap();
         assert_eq!(
@@ -121,22 +126,67 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn omits_automatic_language_and_reports_http_errors() {
+    async fn sends_bearer_auth_when_a_key_is_configured() {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/v1/audio/transcriptions"))
             .respond_with(
-                ResponseTemplate::new(401).set_body_string("authentication disabled required"),
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({"text": "hello"})),
             )
             .mount(&server)
             .await;
 
-        let error = transcribe(&server.uri(), &[0.0], None)
+        transcribe(&server.uri(), Some("test-secret-key"), &[0.0], None)
+            .await
+            .unwrap();
+
+        let requests = server.received_requests().await.unwrap();
+        assert_eq!(
+            requests[0]
+                .headers
+                .get("authorization")
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            "Bearer test-secret-key"
+        );
+    }
+
+    /// A server reachable under a base path (behind a reverse proxy, say) must
+    /// keep that prefix when the transcription path is appended.
+    #[tokio::test]
+    async fn appends_the_transcript_path_to_a_base_path() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/asr/v1/audio/transcriptions"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({"text": "hello"})),
+            )
+            .mount(&server)
+            .await;
+
+        let transcript = transcribe(&format!("{}/asr", server.uri()), None, &[0.0], None)
+            .await
+            .unwrap();
+        assert_eq!(transcript.finish(&AppSettings::default()), "hello");
+    }
+
+    #[tokio::test]
+    async fn omits_automatic_language_and_reports_http_errors() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/audio/transcriptions"))
+            .respond_with(ResponseTemplate::new(401).set_body_string("secret server detail"))
+            .mount(&server)
+            .await;
+
+        let error = transcribe(&server.uri(), None, &[0.0], None)
             .await
             .unwrap_err()
             .to_string();
         assert!(error.contains("HTTP 401"));
-        assert!(!error.contains("authentication disabled required"));
+        assert!(error.contains("Check the API key"));
+        assert!(!error.contains("secret server detail"));
 
         let requests = server.received_requests().await.unwrap();
         let body = String::from_utf8_lossy(&requests[0].body);

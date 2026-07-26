@@ -35,7 +35,7 @@ interface UseSettingsReturn {
   ) => Promise<void>;
   updateCodexAsrBaseUrl: (baseUrl: string) => Promise<void>;
   updateTranscriptionApiKey: (
-    provider: "elevenlabs_scribe",
+    provider: "codex_asr" | "elevenlabs_scribe",
     apiKey: string,
   ) => Promise<void>;
 

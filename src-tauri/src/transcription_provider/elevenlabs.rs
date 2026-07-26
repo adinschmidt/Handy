@@ -200,9 +200,11 @@ mod tests {
     /// subject to normal text cleanup.
     #[test]
     fn protects_audio_events_but_not_spoken_words() {
-        let mut settings = AppSettings::default();
-        settings.app_language = "en".to_string();
-        settings.custom_words = vec!["Handy".to_string()];
+        let settings = AppSettings {
+            app_language: "en".to_string(),
+            custom_words: vec!["Handy".to_string()],
+            ..AppSettings::default()
+        };
         let response = ElevenLabsTranscriptionResponse {
             text: "handy um (applause)".to_string(),
             words: vec![
