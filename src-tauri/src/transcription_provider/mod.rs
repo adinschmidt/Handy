@@ -1,6 +1,7 @@
 mod codex;
 mod elevenlabs;
 
+use crate::audio_toolkit::OutputLanguageEvidence;
 use crate::managers::model::ModelManager;
 use crate::managers::transcription::{post_process_transcription_text, TranscriptionManager};
 use crate::settings::{AppSettings, TranscriptionProvider};
@@ -79,7 +80,20 @@ impl ProviderTranscript {
 
     /// Run text cleanup over the protected text, then restore the spans.
     pub(crate) fn finish(self, settings: &AppSettings) -> String {
-        let mut cleaned = post_process_transcription_text(self.text, settings, false);
+        let language_hint = match settings.selected_transcription_provider {
+            TranscriptionProvider::CodexAsr => {
+                codex::normalize_language(&settings.selected_language)
+            }
+            TranscriptionProvider::ElevenlabsScribe => {
+                elevenlabs::normalize_language(&settings.selected_language)
+            }
+            TranscriptionProvider::Local => None,
+        };
+        let evidence = language_hint
+            .map(|_| OutputLanguageEvidence::UserSelected(settings.selected_language.clone()))
+            .unwrap_or(OutputLanguageEvidence::Unknown);
+        let mut cleaned =
+            post_process_transcription_text(self.text, settings, false, &evidence, &[]);
         for (index, span) in self.protected.into_iter().enumerate() {
             cleaned = cleaned.replace(&protection_marker(index), &span);
         }
@@ -195,7 +209,9 @@ mod tests {
     #[test]
     fn restores_protected_spans_after_cleanup() {
         let settings = AppSettings {
-            app_language: "en".to_string(),
+            selected_transcription_provider:
+                crate::settings::TranscriptionProvider::ElevenlabsScribe,
+            selected_language: "en".to_string(),
             custom_words: vec!["Handy".to_string()],
             ..AppSettings::default()
         };
@@ -221,12 +237,28 @@ mod tests {
     #[test]
     fn plain_output_is_only_post_processed() {
         let settings = AppSettings {
-            app_language: "en".to_string(),
+            selected_transcription_provider:
+                crate::settings::TranscriptionProvider::ElevenlabsScribe,
+            selected_language: "en".to_string(),
             custom_words: vec!["Handy".to_string()],
             ..AppSettings::default()
         };
 
         let transcript = ProviderTranscript::plain("handy um".to_string());
         assert_eq!(transcript.finish(&settings), "Handy");
+    }
+
+    #[test]
+    fn portuguese_cloud_output_preserves_real_words() {
+        let settings = AppSettings {
+            selected_transcription_provider:
+                crate::settings::TranscriptionProvider::ElevenlabsScribe,
+            selected_language: "pt".to_string(),
+            ..AppSettings::default()
+        };
+        assert_eq!(
+            ProviderTranscript::plain("eu vi um carro".to_string()).finish(&settings),
+            "eu vi um carro"
+        );
     }
 }

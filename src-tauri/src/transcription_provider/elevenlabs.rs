@@ -206,7 +206,9 @@ mod tests {
     #[test]
     fn protects_audio_events_but_not_spoken_words() {
         let settings = AppSettings {
-            app_language: "en".to_string(),
+            selected_transcription_provider:
+                crate::settings::TranscriptionProvider::ElevenlabsScribe,
+            selected_language: "en".to_string(),
             custom_words: vec!["Handy".to_string()],
             ..AppSettings::default()
         };

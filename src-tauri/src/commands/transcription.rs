@@ -71,7 +71,7 @@ pub fn set_transcription_provider(
     }
 
     let _ = app.emit("transcription-provider-changed", provider);
-    crate::tray::update_tray_menu(&app, None);
+    crate::tray::update_tray_menu(&app);
     Ok(())
 }
 
@@ -123,7 +123,7 @@ pub fn change_transcription_api_key(
         .transcription_api_keys
         .insert(provider_id.to_string(), api_key.trim().to_string());
     write_settings(&app, settings);
-    crate::tray::update_tray_menu(&app, None);
+    crate::tray::update_tray_menu(&app);
     Ok(())
 }
 

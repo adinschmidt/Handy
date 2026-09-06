@@ -43,3 +43,6 @@ blob-report/
 
 # Nix build output
 result
+
+# Python bytecode (scripts/)
+__pycache__/
