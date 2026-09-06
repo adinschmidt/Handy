@@ -522,7 +522,11 @@
       "retranscribe": "Re-transcribe",
       "retranscribeError": "Failed to re-transcribe. Please try again.",
       "transcribing": "Transcribing...",
-      "transcriptionFailed": "Transcription failed. You can re-transcribe using the retry icon."
+      "transcriptionFailed": "Transcription failed. You can re-transcribe using the retry icon.",
+      "audioPlay": "Play recording",
+      "audioPause": "Pause recording",
+      "audioSeek": "Playback position",
+      "audioPlaybackError": "Could not play or seek this recording."
     },
     "debug": {
       "title": "Debug",

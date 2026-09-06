@@ -921,6 +921,41 @@ async getAudioFilePath(fileName: string) : Promise<Result<string, string>> {
     else return { status: "error", error: e  as any };
 }
 },
+async playHistoryAudio(fileName: string) : Promise<Result<HistoryAudioPlaybackState, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("play_history_audio", { fileName }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async pauseHistoryAudio(fileName: string) : Promise<Result<HistoryAudioPlaybackState, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("pause_history_audio", { fileName }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async seekHistoryAudio(fileName: string, positionSeconds: number) : Promise<Result<HistoryAudioPlaybackState, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("seek_history_audio", { fileName, positionSeconds }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async stopHistoryAudio(fileName: string) : Promise<Result<HistoryAudioPlaybackState, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("stop_history_audio", { fileName }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async getHistoryAudioPlaybackState() : Promise<HistoryAudioPlaybackState> {
+    return await TAURI_INVOKE("get_history_audio_playback_state");
+},
 async deleteHistoryEntry(id: number) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("delete_history_entry", { id }) };
@@ -1079,6 +1114,7 @@ export type EngineType =
  */
 "TranscribeCpp" | "Parakeet" | "Moonshine" | "MoonshineStreaming" | "SenseVoice" | "GigaAM" | "Canary" | "Cohere"
 export type GpuDeviceOption = { id: string; name: string; total_vram_mb: number }
+export type HistoryAudioPlaybackState = { file_name: string | null; is_playing: boolean; position_seconds: number; duration_seconds: number }
 export type HistoryEntry = { id: number; file_name: string; timestamp: number; saved: boolean; title: string; transcription_text: string; post_processed_text: string | null; post_process_prompt: string | null; post_process_requested: boolean }
 export type HistoryUpdatePayload = { action: "added"; entry: HistoryEntry } | { action: "updated"; entry: HistoryEntry } | { action: "deleted"; id: number } | { action: "toggled"; id: number }
 /**

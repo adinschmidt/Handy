@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { readFile } from "@tauri-apps/plugin-fs";
 import { Check, Copy, FolderOpen, RotateCcw, Star, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -13,6 +12,10 @@ import {
 import { useOsType } from "@/hooks/useOsType";
 import { formatDateTime } from "@/utils/dateFormat";
 import { AudioPlayer, AudioPlayerGroup } from "../../ui/AudioPlayer";
+import {
+  NativeAudioPlayer,
+  NativeAudioPlayerGroup,
+} from "../../ui/NativeAudioPlayer";
 import { Button } from "../../ui/Button";
 
 const IconButton: React.FC<{
@@ -180,26 +183,18 @@ export const HistorySettings: React.FC = () => {
     }
   };
 
-  const getAudioUrl = useCallback(
-    async (fileName: string) => {
-      try {
-        const result = await commands.getAudioFilePath(fileName);
-        if (result.status === "ok") {
-          if (osType === "linux") {
-            const fileData = await readFile(result.data);
-            const blob = new Blob([fileData], { type: "audio/wav" });
-            return URL.createObjectURL(blob);
-          }
-          return convertFileSrc(result.data, "asset");
-        }
-        return null;
-      } catch (error) {
-        console.error("Failed to get audio file path:", error);
-        return null;
+  const getAudioUrl = useCallback(async (fileName: string) => {
+    try {
+      const result = await commands.getAudioFilePath(fileName);
+      if (result.status === "ok") {
+        return convertFileSrc(result.data, "asset");
       }
-    },
-    [osType],
-  );
+      return null;
+    } catch (error) {
+      console.error("Failed to get audio file path:", error);
+      return null;
+    }
+  }, []);
 
   const deleteAudioEntry = async (id: number) => {
     // Optimistically remove
@@ -249,23 +244,30 @@ export const HistorySettings: React.FC = () => {
       </div>
     );
   } else {
+    const historyEntries = (
+      <div className="divide-y divide-mid-gray/20">
+        {entries.map((entry) => (
+          <HistoryEntryComponent
+            key={entry.id}
+            entry={entry}
+            onToggleSaved={() => toggleSaved(entry.id)}
+            onCopyText={() => copyToClipboard(entry.transcription_text)}
+            getAudioUrl={getAudioUrl}
+            useNativeAudio={osType === "linux"}
+            deleteAudio={deleteAudioEntry}
+            retryTranscription={retryHistoryEntry}
+          />
+        ))}
+      </div>
+    );
+
     content = (
       <>
-        <AudioPlayerGroup>
-          <div className="divide-y divide-mid-gray/20">
-            {entries.map((entry) => (
-              <HistoryEntryComponent
-                key={entry.id}
-                entry={entry}
-                onToggleSaved={() => toggleSaved(entry.id)}
-                onCopyText={() => copyToClipboard(entry.transcription_text)}
-                getAudioUrl={getAudioUrl}
-                deleteAudio={deleteAudioEntry}
-                retryTranscription={retryHistoryEntry}
-              />
-            ))}
-          </div>
-        </AudioPlayerGroup>
+        {osType === "linux" ? (
+          <NativeAudioPlayerGroup>{historyEntries}</NativeAudioPlayerGroup>
+        ) : (
+          <AudioPlayerGroup>{historyEntries}</AudioPlayerGroup>
+        )}
         {/* Sentinel for infinite scroll */}
         <div ref={sentinelRef} className="h-1" />
       </>
@@ -299,6 +301,7 @@ interface HistoryEntryProps {
   onToggleSaved: () => void;
   onCopyText: () => void;
   getAudioUrl: (fileName: string) => Promise<string | null>;
+  useNativeAudio: boolean;
   deleteAudio: (id: number) => Promise<void>;
   retryTranscription: (id: number) => Promise<void>;
 }
@@ -308,6 +311,7 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
   onToggleSaved,
   onCopyText,
   getAudioUrl,
+  useNativeAudio,
   deleteAudio,
   retryTranscription,
 }) => {
@@ -441,7 +445,11 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
             : t("settings.history.transcriptionFailed")}
       </p>
 
-      <AudioPlayer onLoadRequest={handleLoadAudio} className="w-full" />
+      {useNativeAudio ? (
+        <NativeAudioPlayer fileName={entry.file_name} className="w-full" />
+      ) : (
+        <AudioPlayer onLoadRequest={handleLoadAudio} className="w-full" />
+      )}
     </div>
   );
 };
