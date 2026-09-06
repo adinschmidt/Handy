@@ -1,0 +1,40 @@
+name: Linux release binaries
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: linux-release-${{ github.event.release.id }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.repository == 'adinschmidt/Handy'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            bundles: deb
+          - platform: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            bundles: appimage,rpm
+          - platform: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            bundles: appimage,deb,rpm
+    uses: ./.github/workflows/build.yml
+    with:
+      platform: ${{ matrix.platform }}
+      target: ${{ matrix.target }}
+      ref: ${{ github.sha }}
+      release-id: ${{ format('{0}', github.event.release.id) }}
+      build-args: >-
+        --bundles ${{ matrix.bundles }}
+        --config '{"bundle":{"createUpdaterArtifacts":false}}'
+      sign-binaries: false
+      no-cache: true
