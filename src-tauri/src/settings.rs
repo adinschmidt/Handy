@@ -1,7 +1,6 @@
 mod superwhisper;
 pub(crate) use superwhisper::SuperwhisperCredentials;
 
-use crate::utils;
 use log::{debug, warn};
 use serde::de::{self, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
@@ -595,7 +594,7 @@ fn default_autostart_enabled() -> bool {
 }
 
 fn default_update_checks_enabled() -> bool {
-    true
+    false
 }
 
 fn default_show_whats_new_on_update() -> bool {
@@ -1252,21 +1251,14 @@ fn apply_settings_migrations(
     updated
 }
 
-/// Update checks are forced off (without touching the persisted setting) when
-/// `HANDY_DISABLE_UPDATER` is set — e.g. by the Nix package, since self-update
-/// can't work against an immutable /nix/store install.
+/// The cloud fork never installs upstream releases, even with an old enabled preference.
 pub fn update_checks_forced_disabled() -> bool {
-    use std::sync::OnceLock;
-    static IS_UPDATER_DISABLED: OnceLock<bool> = OnceLock::new();
-    *IS_UPDATER_DISABLED.get_or_init(|| utils::env_flag_enabled("HANDY_DISABLE_UPDATER"))
+    true
 }
 
-/// Effective updater state: the user's stored preference, overridden to `false`
-/// while `HANDY_DISABLE_UPDATER` is set. Callers deciding whether to actually
-/// check for updates must use this rather than reading `update_checks_enabled`
-/// directly, so the forced-off state never leaks into the persisted setting.
-pub fn update_checks_effectively_enabled(settings: &AppSettings) -> bool {
-    settings.update_checks_enabled && !update_checks_forced_disabled()
+/// Stored preferences cannot enable the updater in this fork.
+pub fn update_checks_effectively_enabled(_settings: &AppSettings) -> bool {
+    false
 }
 
 pub fn write_settings(app: &AppHandle, settings: AppSettings) {
@@ -1303,6 +1295,14 @@ pub fn get_recording_retention_period(app: &AppHandle) -> RecordingRetentionPeri
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn upstream_updates_stay_disabled_with_a_saved_enabled_preference() {
+        let mut settings = super::get_default_settings();
+        settings.update_checks_enabled = true;
+        assert!(!super::update_checks_effectively_enabled(&settings));
+        assert!(super::update_checks_forced_disabled());
+    }
+
     use super::*;
 
     fn default_settings_json() -> serde_json::Value {

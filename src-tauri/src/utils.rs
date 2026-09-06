@@ -155,6 +155,7 @@ pub fn is_gnome_wayland() -> bool {
 /// (e.g. "1", "true", "yes", "on").
 /// "0", "false", "no", "off" and empty string are treated as falsy (case-insensitive).
 /// Returns false when the variable is not set.
+#[cfg(any(target_os = "linux", test))]
 pub fn env_flag_enabled(name: &str) -> bool {
     match std::env::var(name) {
         Ok(v) => !matches!(

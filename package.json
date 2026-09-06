@@ -1,7 +1,7 @@
 {
   "name": "handy-app",
   "private": true,
-  "version": "0.9.6-adin.1",
+  "version": "0.9.6-cloud.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
