@@ -2,6 +2,8 @@
 
 This file provides guidance to AI coding assistants working with code in this repository.
 
+For the personal Superwhisper compatibility provider, start with [docs/superwhisper-compat/README.md](docs/superwhisper-compat/README.md). It records the research, integration scope, and current fork architecture.
+
 ## Development Commands
 
 **Prerequisites:**

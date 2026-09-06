@@ -19,3 +19,8 @@ src-tauri/src/catalog/catalog.json
 # Misc
 .DS_Store
 *.log
+
+# Preserve the original protocol investigation snapshots.
+docs/superwhisper-compat/IMPLEMENTATION_PLAN.md
+docs/superwhisper-compat/RESEARCH_FINDINGS.md
+docs/superwhisper-compat/superwhisper-swagger.html

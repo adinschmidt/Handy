@@ -1,0 +1,1690 @@
+openapi: 3.1.0
+info:
+  title: Superwhisper API - Observed and Inferred Interface
+  version: 2.16.6-observed-2026-07-27
+  summary: Unofficial API description reconstructed from Superwhisper 2.16.6 for macOS.
+  description: |
+    This is an unofficial, reverse-engineered description of the network
+    interfaces used by Superwhisper 2.16.6. It is not vendor documentation.
+
+    Operations carry an `x-evidence` field:
+
+    * `curl-verified` - independently replayed successfully with curl.
+    * `cache-confirmed` - recovered from a macOS CFURLCache request/response.
+    * `binary-confirmed` - endpoint or protocol fields found in the installed binary.
+    * `inferred` - strongly suggested, but not captured as a complete request.
+
+    Credential values are intentionally absent. Unknown request bodies are
+    represented permissively and marked `x-capture-required: true`.
+
+    OpenAPI does not natively describe WebSockets well. The realtime protocols
+    are recorded under the top-level `x-websocket-endpoints` extension.
+  contact:
+    name: Unofficial local investigation
+  license:
+    name: Documentation artifact only
+
+x-investigation:
+  app:
+    name: Superwhisper
+    bundleIdentifier: com.superduper.superwhisper
+    version: 2.16.6
+    httpLibrary: Alamofire 5.8.0 / URLSession / CFNetwork
+  date: 2026-07-27
+  safety:
+    interceptionCAInstalled: false
+    persistentProxyEnabled: false
+    realCredentialsIncluded: false
+  limitations:
+    - The X-Signature derivation is unknown.
+    - Several binary-confirmed routes still require a disposable full-body capture.
+    - Provider APIs can change independently of the installed app.
+
+servers:
+  - url: https://api.superwhisper.com
+    description: Primary Superwhisper API
+  - url: https://ai.superwhisper.com
+    description: Default regional inference API
+  - url: https://us.ai.superwhisper.com
+    description: US regional inference API observed in the binary
+
+tags:
+  - name: Transcription
+  - name: Realtime
+  - name: Language models
+  - name: Inference bootstrap
+  - name: License
+  - name: File sync
+  - name: Statistics
+  - name: Diagnostics
+  - name: External providers
+  - name: Local providers
+
+paths:
+  /elevenlabs/v1/transcribe:
+    post:
+      operationId: transcribeWithSuperwhisperElevenLabs
+      tags: [Transcription]
+      summary: Batch-transcribe Ogg Opus audio through Superwhisper's ElevenLabs proxy.
+      description: |
+        This is the request used by the investigated Default mode. The literal
+        upload part is named `file`, not `audio`. Curl replay returned HTTP 200
+        and the expected transcript.
+      x-evidence: curl-verified
+      security:
+        - DeviceIdHeader: []
+          LicenseIdHeader: []
+          SignatureHeader: []
+      parameters:
+        - $ref: "#/components/parameters/PlatformHeader"
+        - $ref: "#/components/parameters/AcceptHeader"
+        - $ref: "#/components/parameters/AcceptEncodingHeader"
+        - $ref: "#/components/parameters/AcceptLanguageHeader"
+        - $ref: "#/components/parameters/AppUserAgentHeader"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/ElevenLabsBatchRequest"
+            encoding:
+              file:
+                contentType: audio/ogg
+              "keyterms[]":
+                style: form
+                explode: true
+      responses:
+        "200":
+          $ref: "#/components/responses/ElevenLabsTranscriptionResponse"
+        "400":
+          $ref: "#/components/responses/ApiError"
+        "401":
+          $ref: "#/components/responses/ApiError"
+        "429":
+          $ref: "#/components/responses/ApiError"
+        default:
+          $ref: "#/components/responses/ApiError"
+
+  /models/language/cloud:
+    get:
+      operationId: listSuperwhisperCloudLanguageModels
+      tags: [Language models]
+      summary: List cloud language models available to the current account.
+      x-evidence: cache-confirmed
+      security:
+        - DeviceIdHeader: []
+          LicenseIdHeader: []
+          SignatureHeader: []
+      parameters:
+        - $ref: "#/components/parameters/PlatformHeader"
+        - $ref: "#/components/parameters/AcceptHeader"
+      responses:
+        "200":
+          description: Cloud model catalog.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [models]
+                properties:
+                  models:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/CloudLanguageModel"
+        default:
+          $ref: "#/components/responses/ApiError"
+
+  /v1/chat/completions:
+    post:
+      operationId: createSuperwhisperChatCompletion
+      tags: [Language models]
+      summary: Run an OpenAI-format cloud language-model request.
+      description: |
+        The cache-confirmed response was an OpenAI-compatible SSE stream ending
+        in `data: [DONE]`.
+      x-evidence: cache-confirmed
+      security:
+        - DeviceIdHeader: []
+          LicenseIdHeader: []
+          SignatureHeader: []
+      parameters:
+        - $ref: "#/components/parameters/PlatformHeader"
+        - $ref: "#/components/parameters/AcceptHeader"
+        - $ref: "#/components/parameters/AppUserAgentHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OpenAIChatRequest"
+      responses:
+        "200":
+          description: Server-sent OpenAI-compatible chat-completion chunks.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: |
+                  Lines beginning with `data:`. JSON events contain `choices`,
+                  `delta`, `role`, `content`, `refusal`, and `finish_reason`,
+                  followed by `data: [DONE]`.
+        default:
+          $ref: "#/components/responses/ApiError"
+
+  /gemini/v1/messages:
+    post:
+      operationId: createSuperwhisperGeminiMessage
+      tags: [Language models]
+      summary: Run a Gemini-format cloud request through Superwhisper.
+      x-evidence: binary-confirmed
+      security:
+        - DeviceIdHeader: []
+          LicenseIdHeader: []
+          SignatureHeader: []
+      parameters:
+        - $ref: "#/components/parameters/PlatformHeader"
+      requestBody:
+        $ref: "#/components/requestBodies/UncapturedJsonBody"
+      responses:
+        "200":
+          $ref: "#/components/responses/GenericJsonOrStream"
+        default:
+          $ref: "#/components/responses/ApiError"
+
+  /anthropic/v1/messages:
+    post:
+      operationId: createSuperwhisperAnthropicMessage
+      tags: [Language models]
+      summary: Run an Anthropic-format cloud request through Superwhisper.
+      x-evidence: binary-confirmed
+      security:
+        - DeviceIdHeader: []
+          LicenseIdHeader: []
+          SignatureHeader: []
+      parameters:
+        - $ref: "#/components/parameters/PlatformHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AnthropicMessageRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/GenericJsonOrStream"
+        default:
+          $ref: "#/components/responses/ApiError"
+
+  /grok/v1/messages:
+    post:
+      operationId: createSuperwhisperGrokMessage
+      tags: [Language models]
+      summary: Run a Grok-format cloud request through Superwhisper.
+      x-evidence: binary-confirmed
+      security:
+        - DeviceIdHeader: []
+          LicenseIdHeader: []
+          SignatureHeader: []
+      parameters:
+        - $ref: "#/components/parameters/PlatformHeader"
+      requestBody:
+        $ref: "#/components/requestBodies/UncapturedJsonBody"
+      responses:
+        "200":
+          $ref: "#/components/responses/GenericJsonOrStream"
+        default:
+          $ref: "#/components/responses/ApiError"
+
+  /openai/v1/chat/completions:
+    post:
+      operationId: createSuperwhisperOpenAICompatibleCompletion
+      tags: [Language models]
+      summary: Alternate OpenAI-compatible proxy completion path.
+      x-evidence: binary-confirmed
+      security:
+        - DeviceIdHeader: []
+          LicenseIdHeader: []
+          SignatureHeader: []
+      parameters:
+        - $ref: "#/components/parameters/PlatformHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OpenAIChatRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/GenericJsonOrStream"
+        default:
+          $ref: "#/components/responses/ApiError"
+
+  /groq/v1/chat/completions:
+    post:
+      operationId: createSuperwhisperGroqCompatibleCompletion
+      tags: [Language models]
+      summary: Alternate Groq/OpenAI-compatible proxy completion path.
+      x-evidence: binary-confirmed
+      security:
+        - DeviceIdHeader: []
+          LicenseIdHeader: []
+          SignatureHeader: []
+      parameters:
+        - $ref: "#/components/parameters/PlatformHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OpenAIChatRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/GenericJsonOrStream"
+        default:
+          $ref: "#/components/responses/ApiError"
+
+  /license/validate:
+    post:
+      operationId: validateSuperwhisperLicense
+      tags: [License]
+      summary: Validate an existing license and retrieve organization capabilities.
+      x-evidence: cache-confirmed
+      security:
+        - LicenseBearer: []
+          SignatureHeader: []
+      parameters:
+        - $ref: "#/components/parameters/PlatformHeader"
+        - $ref: "#/components/parameters/AcceptHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [licenseKey]
+              properties:
+                licenseKey:
+                  type: string
+                  format: uuid
+                  writeOnly: true
+      responses:
+        "200":
+          description: License status and enabled capabilities.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LicenseValidationResponse"
+        default:
+          $ref: "#/components/responses/ApiError"
+
+  /license/activate:
+    post:
+      operationId: activateSuperwhisperLicense
+      tags: [License]
+      summary: Activate or check activation for a license.
+      x-evidence: binary-confirmed
+      x-capture-required: true
+      parameters:
+        - $ref: "#/components/parameters/PlatformHeader"
+      requestBody:
+        $ref: "#/components/requestBodies/UncapturedJsonBody"
+      responses:
+        "200":
+          $ref: "#/components/responses/GenericJson"
+        default:
+          $ref: "#/components/responses/ApiError"
+
+  /license/email/verify:
+    post:
+      operationId: requestSuperwhisperEmailVerification
+      tags: [License]
+      summary: Start or complete the email-verification flow.
+      x-evidence: binary-confirmed
+      x-capture-required: true
+      parameters:
+        - $ref: "#/components/parameters/PlatformHeader"
+      requestBody:
+        $ref: "#/components/requestBodies/UncapturedJsonBody"
+      responses:
+        "200":
+          $ref: "#/components/responses/GenericJson"
+        default:
+          $ref: "#/components/responses/ApiError"
+
+  /v1/inference/key:
+    get:
+      operationId: getSuperwhisperInferenceKey
+      tags: [Inference bootstrap]
+      summary: Obtain a short-lived inference bearer token.
+      x-evidence: binary-confirmed
+      x-method-confidence: inferred
+      security:
+        - LicenseBearer: []
+      parameters:
+        - $ref: "#/components/parameters/PlatformHeader"
+      responses:
+        "200":
+          description: Short-lived inference credential.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TemporaryTokenResponse"
+        default:
+          $ref: "#/components/responses/ApiError"
+
+  /v2/inference/key:
+    get:
+      operationId: getRegionalSuperwhisperInferenceKey
+      tags: [Inference bootstrap]
+      summary: Obtain an inference token scoped to a selected region.
+      x-evidence: binary-confirmed
+      x-method-confidence: inferred
+      security:
+        - LicenseBearer: []
+      parameters:
+        - $ref: "#/components/parameters/PlatformHeader"
+        - name: region
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Regional short-lived inference credential.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TemporaryTokenResponse"
+        default:
+          $ref: "#/components/responses/ApiError"
+
+  /v2/inference/regions:
+    get:
+      operationId: listSuperwhisperInferenceRegions
+      tags: [Inference bootstrap]
+      summary: List or probe available hosted inference regions.
+      x-evidence: binary-confirmed
+      x-method-confidence: inferred
+      security:
+        - LicenseBearer: []
+      parameters:
+        - $ref: "#/components/parameters/PlatformHeader"
+      responses:
+        "200":
+          description: Region list.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        default:
+          $ref: "#/components/responses/ApiError"
+
+  /deepgram/v1/key:
+    get:
+      operationId: getSuperwhisperDeepgramToken
+      tags: [Inference bootstrap, Realtime]
+      summary: Obtain a temporary Deepgram token.
+      x-evidence: binary-confirmed
+      x-method-confidence: inferred
+      x-capture-required: true
+      security:
+        - DeviceIdHeader: []
+          LicenseIdHeader: []
+          SignatureHeader: []
+      parameters:
+        - $ref: "#/components/parameters/PlatformHeader"
+      responses:
+        "200":
+          description: Temporary Deepgram credential.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TemporaryTokenResponse"
+        default:
+          $ref: "#/components/responses/ApiError"
+
+  /elevenlabs/v1/key:
+    get:
+      operationId: getSuperwhisperElevenLabsToken
+      tags: [Inference bootstrap, Realtime]
+      summary: Obtain a temporary ElevenLabs realtime token.
+      x-evidence: binary-confirmed
+      x-method-confidence: inferred
+      x-capture-required: true
+      security:
+        - DeviceIdHeader: []
+          LicenseIdHeader: []
+          SignatureHeader: []
+      parameters:
+        - $ref: "#/components/parameters/PlatformHeader"
+      responses:
+        "200":
+          description: Temporary ElevenLabs credential.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TemporaryTokenResponse"
+        default:
+          $ref: "#/components/responses/ApiError"
+
+  /file/check-updates:
+    get:
+      operationId: checkSuperwhisperFileUpdates
+      tags: [File sync]
+      summary: Check synchronized-file changes after a local counter.
+      x-evidence: cache-confirmed
+      security:
+        - LicenseBearer: []
+      parameters:
+        - $ref: "#/components/parameters/PlatformHeader"
+        - name: since
+          in: query
+          required: true
+          schema:
+            type: integer
+            minimum: 0
+      responses:
+        "200":
+          description: Updated files and next synchronization counter.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FileUpdateCheckResponse"
+        default:
+          $ref: "#/components/responses/ApiError"
+
+  /file/upload:
+    post:
+      operationId: uploadSuperwhisperSyncFile
+      tags: [File sync]
+      summary: Upload an encrypted synchronized file.
+      description: |
+        The app encrypts the file before upload. A 409 response triggers a sync
+        followed by up to two retries.
+      x-evidence: cache-confirmed
+      security:
+        - LicenseBearer: []
+      parameters:
+        - $ref: "#/components/parameters/PlatformHeader"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [base_counter, file]
+              properties:
+                base_counter:
+                  type: integer
+                  minimum: 0
+                file:
+                  type: string
+                  format: binary
+                  description: Encrypted file bytes. The multipart filename is the logical sync path.
+            encoding:
+              file:
+                contentType: application/octet-stream
+      responses:
+        "200":
+          description: Upload result and next counter.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FileUploadResponse"
+        "409":
+          description: Synchronization-counter conflict.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        default:
+          $ref: "#/components/responses/ApiError"
+
+  /file/delete:
+    delete:
+      operationId: deleteSuperwhisperSyncFile
+      tags: [File sync]
+      summary: Delete a synchronized remote file.
+      description: Destructive. Capture against a disposable file before automating.
+      x-evidence: binary-confirmed
+      x-capture-required: true
+      security:
+        - LicenseBearer: []
+      parameters:
+        - $ref: "#/components/parameters/PlatformHeader"
+      requestBody:
+        $ref: "#/components/requestBodies/UncapturedJsonBody"
+      responses:
+        "200":
+          $ref: "#/components/responses/GenericJson"
+        "404":
+          description: Already absent remotely; treated as success by the app.
+        default:
+          $ref: "#/components/responses/ApiError"
+
+  /file/download:
+    post:
+      operationId: downloadSuperwhisperSyncFile
+      tags: [File sync]
+      summary: Download an encrypted synchronized file.
+      x-evidence: binary-confirmed
+      x-capture-required: true
+      security:
+        - LicenseBearer: []
+      parameters:
+        - $ref: "#/components/parameters/PlatformHeader"
+      requestBody:
+        $ref: "#/components/requestBodies/UncapturedJsonBody"
+      responses:
+        "200":
+          description: Encrypted file or JSON wrapper; exact form is not captured.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        default:
+          $ref: "#/components/responses/ApiError"
+
+  /stats/recording/bulk:
+    post:
+      operationId: uploadSuperwhisperRecordingStatistics
+      tags: [Statistics]
+      summary: Upload hourly aggregated recording statistics.
+      description: The payload contains aggregate metadata, not transcript text.
+      x-evidence: binary-confirmed
+      x-root-wrapper-confidence: inferred
+      security:
+        - LicenseBearer: []
+      parameters:
+        - $ref: "#/components/parameters/PlatformHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - type: array
+                  items:
+                    $ref: "#/components/schemas/RecordingStatGroup"
+                - type: object
+                  additionalProperties: true
+                  properties:
+                    stats:
+                      type: array
+                      items:
+                        $ref: "#/components/schemas/RecordingStatGroup"
+      responses:
+        "200":
+          $ref: "#/components/responses/GenericJson"
+        default:
+          $ref: "#/components/responses/ApiError"
+
+  /upload-report:
+    post:
+      operationId: uploadSuperwhisperIssueReport
+      tags: [Diagnostics]
+      summary: Upload an issue or diagnostic report.
+      x-evidence: binary-confirmed
+      x-capture-required: true
+      security:
+        - DeviceIdHeader: []
+          LicenseIdHeader: []
+          SignatureHeader: []
+      parameters:
+        - $ref: "#/components/parameters/PlatformHeader"
+      requestBody:
+        description: Exact multipart field set is not captured.
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          $ref: "#/components/responses/GenericJson"
+        default:
+          $ref: "#/components/responses/ApiError"
+
+  /v1/c/run:
+    post:
+      operationId: runSuperwhisperRegionalTranscription
+      tags: [Transcription]
+      summary: Run S1 regional transcription from base64-encoded WAV audio.
+      x-evidence: cache-confirmed
+      servers:
+        - url: https://ai.superwhisper.com
+          description: Default regional host
+        - url: https://us.ai.superwhisper.com
+          description: US regional host
+        - url: https://{region}.ai.superwhisper.com
+          description: Dynamically selected regional host
+          variables:
+            region:
+              default: us
+      security:
+        - InferenceBearer: []
+      parameters:
+        - $ref: "#/components/parameters/AcceptHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/S1RunRequest"
+      responses:
+        "200":
+          description: Regional transcription result and timing.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/S1RunResponse"
+        default:
+          $ref: "#/components/responses/ApiError"
+
+  /v1/c/ping:
+    post:
+      operationId: pingSuperwhisperRegionalInference
+      tags: [Inference bootstrap]
+      summary: Probe or warm a regional inference host.
+      x-evidence: binary-confirmed
+      x-capture-required: true
+      servers:
+        - url: https://ai.superwhisper.com
+        - url: https://{region}.ai.superwhisper.com
+          variables:
+            region:
+              default: us
+      security:
+        - InferenceBearer: []
+      requestBody:
+        $ref: "#/components/requestBodies/UncapturedJsonBody"
+      responses:
+        "200":
+          $ref: "#/components/responses/GenericJson"
+        default:
+          $ref: "#/components/responses/ApiError"
+
+  /v1/c/generate:
+    post:
+      operationId: generateSuperwhisperRegionalTranscription
+      tags: [Transcription]
+      summary: Run the alternate hosted multipart transcription path.
+      x-evidence: binary-confirmed
+      x-capture-required: true
+      servers:
+        - url: https://ai.superwhisper.com
+        - url: https://{region}.ai.superwhisper.com
+          variables:
+            region:
+              default: us
+      security:
+        - InferenceBearer: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [audio]
+              properties:
+                audio:
+                  type: string
+                  format: binary
+                vocabulary:
+                  type: string
+                  format: binary
+                  description: Optional vocabulary file named vocab.bin.
+                enable_word_timestamps:
+                  type: boolean
+                enable_audio_vocab:
+                  type: boolean
+      responses:
+        "200":
+          $ref: "#/components/responses/GenericJson"
+        default:
+          $ref: "#/components/responses/ApiError"
+
+  /v1/listen:
+    post:
+      operationId: transcribeDirectlyWithDeepgram
+      tags: [External providers, Transcription]
+      summary: Send raw Ogg audio to Deepgram batch transcription.
+      x-evidence: binary-confirmed
+      servers:
+        - url: https://api.deepgram.com
+      security:
+        - DeepgramToken: []
+      parameters:
+        - $ref: "#/components/parameters/DeepgramPunctuate"
+        - $ref: "#/components/parameters/DeepgramParagraphs"
+        - $ref: "#/components/parameters/DeepgramNumerals"
+        - $ref: "#/components/parameters/DeepgramSmartFormat"
+        - $ref: "#/components/parameters/LanguageQuery"
+        - name: diarize
+          in: query
+          schema:
+            type: boolean
+        - name: model
+          in: query
+          schema:
+            type: string
+            enum: [nova-3, nova-2, nova-2-medical]
+        - name: keyterm
+          in: query
+          description: Repeatable Nova 3 key term.
+          schema:
+            type: array
+            items:
+              type: string
+          style: form
+          explode: true
+        - name: keywords
+          in: query
+          description: Repeatable keyword for older models.
+          schema:
+            type: array
+            items:
+              type: string
+          style: form
+          explode: true
+      requestBody:
+        required: true
+        content:
+          audio/ogg:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "200":
+          description: Deepgram result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeepgramResponse"
+        default:
+          $ref: "#/components/responses/ApiError"
+
+  /v1/audio/transcriptions:
+    post:
+      operationId: transcribeWithOpenAICompatibleAudioApi
+      tags: [External providers, Transcription]
+      summary: Transcribe audio with an OpenAI-compatible audio API.
+      x-evidence: binary-confirmed
+      x-final-path-suffix-confidence: inferred-from-provider-protocol
+      servers:
+        - url: https://api.openai.com
+          description: OpenAI
+        - url: https://api.groq.com/openai
+          description: Groq
+      security:
+        - ProviderBearer: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/OpenAIAudioRequest"
+            encoding:
+              file:
+                contentType: audio/ogg
+      responses:
+        "200":
+          description: Provider transcription response.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        default:
+          $ref: "#/components/responses/ApiError"
+
+  /v1/audio/translations:
+    post:
+      operationId: translateWithOpenAICompatibleAudioApi
+      tags: [External providers, Transcription]
+      summary: Translate audio to English with an OpenAI-compatible audio API.
+      x-evidence: binary-confirmed
+      x-final-path-suffix-confidence: inferred-from-provider-protocol
+      servers:
+        - url: https://api.openai.com
+          description: OpenAI
+        - url: https://api.groq.com/openai
+          description: Groq
+      security:
+        - ProviderBearer: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/OpenAIAudioRequest"
+      responses:
+        "200":
+          description: Provider translation response.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        default:
+          $ref: "#/components/responses/ApiError"
+
+  /v1/models:
+    get:
+      operationId: listExternalProviderModels
+      tags: [External providers, Language models]
+      summary: List models from an OpenAI- or Groq-compatible provider.
+      x-evidence: binary-confirmed
+      servers:
+        - url: https://api.openai.com
+        - url: https://api.groq.com/openai
+      security:
+        - ProviderBearer: []
+      responses:
+        "200":
+          $ref: "#/components/responses/GenericJson"
+        default:
+          $ref: "#/components/responses/ApiError"
+
+  /v1/messages:
+    post:
+      operationId: createDirectAnthropicMessage
+      tags: [External providers, Language models]
+      summary: Send a direct BYOK Anthropic message request.
+      x-evidence: binary-confirmed
+      servers:
+        - url: https://api.anthropic.com
+      security:
+        - AnthropicApiKey: []
+      parameters:
+        - name: anthropic-version
+          in: header
+          required: true
+          schema:
+            type: string
+            default: "2023-06-01"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AnthropicMessageRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/GenericJsonOrStream"
+        default:
+          $ref: "#/components/responses/ApiError"
+
+  /api/tags:
+    get:
+      operationId: listLocalOllamaModels
+      tags: [Local providers, Language models]
+      summary: List locally installed Ollama models.
+      x-evidence: binary-confirmed
+      servers:
+        - url: http://localhost:11434
+      responses:
+        "200":
+          $ref: "#/components/responses/GenericJson"
+        default:
+          $ref: "#/components/responses/ApiError"
+
+components:
+  securitySchemes:
+    DeviceIdHeader:
+      type: apiKey
+      in: header
+      name: X-ID
+      description: 36-character device identifier. Sensitive.
+    LicenseIdHeader:
+      type: apiKey
+      in: header
+      name: X-License
+      description: 36-character license/user identifier. Sensitive.
+    SignatureHeader:
+      type: apiKey
+      in: header
+      name: X-Signature
+      description: |
+        64-character lowercase hexadecimal signature. The same value was
+        accepted across transcription, model-catalog, and cloud-chat requests.
+        Its derivation is unknown.
+    LicenseBearer:
+      type: http
+      scheme: bearer
+      description: License/session bearer used by validation and file sync.
+    InferenceBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Short-lived hosted-inference JWT with an expiry claim.
+    ProviderBearer:
+      type: http
+      scheme: bearer
+      description: OpenAI-, Groq-, or other OpenAI-compatible provider API key.
+    DeepgramToken:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: Exact value is `Token <temporary-or-BYOK-token>`.
+    AnthropicApiKey:
+      type: apiKey
+      in: header
+      name: x-api-key
+
+  parameters:
+    PlatformHeader:
+      name: X-Platform
+      in: header
+      required: true
+      schema:
+        type: string
+        const: macos
+    AcceptHeader:
+      name: Accept
+      in: header
+      required: false
+      schema:
+        type: string
+        default: "*/*"
+    AcceptEncodingHeader:
+      name: Accept-Encoding
+      in: header
+      required: false
+      description: |
+        The app sent `gzip, deflate, br`. The Apple curl used for verification
+        cannot decode Brotli, so a runnable curl may use `gzip, deflate`.
+      schema:
+        type: string
+        default: "gzip, deflate, br"
+    AcceptLanguageHeader:
+      name: Accept-Language
+      in: header
+      required: false
+      schema:
+        type: string
+        default: "en-CA,en-US;q=0.9,en;q=0.8"
+    AppUserAgentHeader:
+      name: User-Agent
+      in: header
+      required: false
+      schema:
+        type: string
+        default: "superwhisper/2.16.6 (com.superduper.superwhisper; build:2.16.6; macOS 26.5.2) Alamofire/5.8.0"
+    DeepgramPunctuate:
+      name: punctuate
+      in: query
+      schema:
+        type: boolean
+        default: true
+    DeepgramParagraphs:
+      name: paragraphs
+      in: query
+      schema:
+        type: boolean
+        default: true
+    DeepgramNumerals:
+      name: numerals
+      in: query
+      schema:
+        type: boolean
+        default: true
+    DeepgramSmartFormat:
+      name: smart_format
+      in: query
+      schema:
+        type: boolean
+        default: true
+    LanguageQuery:
+      name: language
+      in: query
+      schema:
+        type: string
+        default: en
+
+  headers:
+    CharacterCost:
+      description: |
+        Provider/server metering unit. The verified request returned `3`.
+        The precise unit definition is undocumented.
+      schema:
+        type: integer
+    FiatCostBeforeOverages:
+      description: |
+        Server-reported estimated fiat value for the request before overage
+        handling. The verified response returned `0.0003`.
+        This is not proof that a separate card charge occurred.
+      schema:
+        type: number
+        format: double
+    FiatCurrency:
+      description: Currency for fiat-cost-before-overages; observed as `usd`.
+      schema:
+        type: string
+    CurrentConcurrentRequests:
+      description: Current request concurrency reported by the service.
+      schema:
+        type: integer
+    MaximumConcurrentRequests:
+      description: Maximum account request concurrency, when emitted.
+      schema:
+        type: integer
+    WorkspaceConcurrentRequests:
+      description: Current workspace request concurrency.
+      schema:
+        type: integer
+    Region:
+      description: Inference region selected by the service.
+      schema:
+        type: string
+
+  requestBodies:
+    UncapturedJsonBody:
+      description: Exact root keys and required fields have not been captured.
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: true
+
+  responses:
+    ElevenLabsTranscriptionResponse:
+      description: Successful batch transcription.
+      headers:
+        character-cost:
+          $ref: "#/components/headers/CharacterCost"
+        fiat-cost-before-overages:
+          $ref: "#/components/headers/FiatCostBeforeOverages"
+        fiat-currency:
+          $ref: "#/components/headers/FiatCurrency"
+        current-concurrent-requests:
+          $ref: "#/components/headers/CurrentConcurrentRequests"
+        maximum-concurrent-requests:
+          $ref: "#/components/headers/MaximumConcurrentRequests"
+        workspace-concurrent-requests:
+          $ref: "#/components/headers/WorkspaceConcurrentRequests"
+        x-region:
+          $ref: "#/components/headers/Region"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ElevenLabsBatchResponse"
+    ApiError:
+      description: Error response.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+        text/plain:
+          schema:
+            type: string
+    GenericJson:
+      description: JSON response whose complete schema has not been captured.
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: true
+    GenericJsonOrStream:
+      description: JSON or server-sent streaming response.
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: true
+        text/event-stream:
+          schema:
+            type: string
+
+  schemas:
+    ElevenLabsBatchRequest:
+      type: object
+      required: [file, language_code]
+      properties:
+        file:
+          type: string
+          format: binary
+          description: Ogg Opus audio uploaded with filename audio.ogg.
+        language_code:
+          type: string
+          description: Requested language, such as en.
+        "keyterms[]":
+          type: array
+          items:
+            type: string
+          description: Optional repeatable vocabulary hints.
+        diarize:
+          type: boolean
+          description: Optional speaker separation flag.
+
+    ElevenLabsBatchResponse:
+      type: object
+      required:
+        - language_code
+        - language_probability
+        - text
+        - words
+        - transcription_id
+        - audio_duration_secs
+      properties:
+        language_code:
+          type: string
+          examples: [eng]
+        language_probability:
+          type: number
+          minimum: 0
+          maximum: 1
+        text:
+          type: string
+        words:
+          type: array
+          items:
+            $ref: "#/components/schemas/TranscriptionWord"
+        transcription_id:
+          type: string
+        audio_duration_secs:
+          type: number
+          minimum: 0
+
+    TranscriptionWord:
+      type: object
+      required: [text, start, end, type, logprob]
+      properties:
+        text:
+          type: string
+        start:
+          type: number
+        end:
+          type: number
+        type:
+          type: string
+          examples: [word]
+        logprob:
+          type: number
+
+    S1RunRequest:
+      type: object
+      required: [translate, audio_base64, prompt, language, word_timestamps]
+      properties:
+        translate:
+          type: boolean
+        audio_base64:
+          type: string
+          contentEncoding: base64
+          contentMediaType: audio/wav
+          writeOnly: true
+        prompt:
+          type: string
+        language:
+          type: string
+        word_timestamps:
+          type: boolean
+
+    S1RunResponse:
+      type: object
+      required: [run_id, result, run_time_ms]
+      properties:
+        run_id:
+          type: string
+          format: uuid
+        result:
+          type: object
+          required: [text, segments]
+          properties:
+            b64_decode_duration:
+              type: number
+            file_duration:
+              type: number
+            processing_duration:
+              type: number
+            encoding_duration:
+              type: number
+            decoding_duration:
+              type: number
+            allocation_duration:
+              type: number
+            text:
+              type: string
+            segments:
+              type: array
+              items:
+                $ref: "#/components/schemas/TranscriptSegment"
+        run_time_ms:
+          type: number
+
+    TranscriptSegment:
+      type: object
+      required: [text, start, end]
+      properties:
+        text:
+          type: string
+        start:
+          type: number
+        end:
+          type: number
+
+    OpenAIChatRequest:
+      type: object
+      required: [model, messages]
+      properties:
+        model:
+          type: string
+        messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChatMessage"
+        stream:
+          type: boolean
+          default: true
+        max_tokens:
+          type: integer
+          minimum: 1
+        reasoning_effort:
+          type: string
+      additionalProperties: true
+
+    ChatMessage:
+      type: object
+      required: [role, content]
+      properties:
+        role:
+          type: string
+          enum: [system, user, assistant, tool]
+        content:
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                type: object
+                additionalProperties: true
+        name:
+          type: string
+      additionalProperties: true
+
+    AnthropicMessageRequest:
+      type: object
+      required: [model, max_tokens, messages]
+      properties:
+        model:
+          type: string
+        max_tokens:
+          type: integer
+          minimum: 1
+        system:
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                type: object
+                additionalProperties: true
+        messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChatMessage"
+        stream:
+          type: boolean
+      additionalProperties: true
+
+    OpenAIAudioRequest:
+      type: object
+      required: [file, model]
+      properties:
+        file:
+          type: string
+          format: binary
+        model:
+          type: string
+          examples: [whisper-1, gpt-4o-transcribe, gpt-4o-mini-transcribe]
+        language:
+          type: string
+        prompt:
+          type: string
+        response_format:
+          type: string
+        "timestamp_granularities[0]":
+          type: string
+          enum: [word, segment]
+
+    CloudLanguageModel:
+      type: object
+      required: [id, name, provider, format, completionPath]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        provider:
+          type: string
+          examples: [superwhisper]
+        format:
+          type: string
+          enum: [openai, anthropic, gemini, grok]
+        completionPath:
+          type: string
+        deprecated:
+          type: boolean
+        accuracy:
+          type: [number, string, "null"]
+        contextWindow:
+          type: [integer, "null"]
+        description:
+          type: [string, "null"]
+        engine:
+          type: [string, "null"]
+        isNew:
+          type: [boolean, "null"]
+        language:
+          type: [string, "null"]
+        legacy:
+          type: [boolean, "null"]
+        licenseType:
+          type: [string, "null"]
+        maxTokens:
+          type: [integer, "null"]
+        speed:
+          type: [number, string, "null"]
+        translation:
+          type: [boolean, "null"]
+        type:
+          type: [string, "null"]
+      additionalProperties: true
+
+    LicenseValidationResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        models:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        enableCloudModels:
+          type: boolean
+        enableSyncStats:
+          type: boolean
+        enableSystemAudioRecording:
+          type: boolean
+        recordingRetentionDuration:
+          type: number
+        enableSpeakerSeparation:
+          type: boolean
+        organization:
+          type: [object, "null"]
+          additionalProperties: true
+        userEmail:
+          type: string
+          format: email
+        userName:
+          type: string
+        licenseCreatedAt:
+          type: string
+          format: date-time
+      additionalProperties: true
+
+    TemporaryTokenResponse:
+      description: Exact wrapper keys are not captured.
+      oneOf:
+        - type: object
+          additionalProperties: true
+          properties:
+            token:
+              type: string
+              writeOnly: true
+            key:
+              type: string
+              writeOnly: true
+            expires_at:
+              type: [string, integer, "null"]
+        - type: string
+          writeOnly: true
+
+    FileUpdateCheckResponse:
+      type: object
+      required: [success, files, next_counter]
+      properties:
+        success:
+          type: boolean
+        files:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        next_counter:
+          type: integer
+
+    FileUploadResponse:
+      type: object
+      required: [success, filename, metadata, next_counter]
+      properties:
+        success:
+          type: boolean
+        filename:
+          type: string
+        metadata:
+          type: boolean
+        next_counter:
+          type: integer
+
+    RecordingStatGroup:
+      type: object
+      required:
+        - hourTimestamp
+        - fromFile
+        - voiceModel
+        - languageModel
+        - appName
+        - recordingCount
+        - totalProcessingTime
+        - totalLlmProcessingTime
+        - totalWordCount
+        - totalDuration
+      properties:
+        hourTimestamp:
+          type: string
+          format: date-time
+          description: Hour bucket formatted as YYYY-MM-DDTHH:00:00Z.
+        fromFile:
+          type: boolean
+        voiceModel:
+          type: string
+        languageModel:
+          type: string
+        appName:
+          type: string
+        recordingCount:
+          type: integer
+          minimum: 0
+        totalProcessingTime:
+          type: number
+          minimum: 0
+        totalLlmProcessingTime:
+          type: number
+          minimum: 0
+        totalWordCount:
+          type: integer
+          minimum: 0
+        totalDuration:
+          type: number
+          minimum: 0
+
+    DeepgramResponse:
+      type: object
+      properties:
+        results:
+          type: object
+          properties:
+            channels:
+              type: array
+              items:
+                type: object
+                properties:
+                  alternatives:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        transcript:
+                          type: string
+                        words:
+                          type: array
+                          items:
+                            $ref: "#/components/schemas/DeepgramWord"
+      additionalProperties: true
+
+    DeepgramWord:
+      type: object
+      properties:
+        word:
+          type: string
+        punctuated_word:
+          type: string
+        start:
+          type: number
+        end:
+          type: number
+        confidence:
+          type: number
+        speaker:
+          type: integer
+      additionalProperties: true
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          oneOf:
+            - type: string
+            - type: object
+              additionalProperties: true
+        message:
+          type: string
+        detail:
+          type: string
+        success:
+          type: boolean
+      additionalProperties: true
+
+x-websocket-endpoints:
+  - name: Deepgram realtime transcription
+    x-evidence: binary-confirmed
+    url: wss://api.deepgram.com/v1/listen
+    authentication:
+      location: header
+      name: Authorization
+      format: "Token <temporary-or-BYOK-token>"
+    query:
+      encoding: linear16
+      sample_rate: 16000
+      channels: "<count>"
+      smart_format: true
+      interim_results: true
+      model: nova-2
+      language: "<language>"
+      diarize: "<boolean>"
+      multichannel: "<boolean>"
+      keywords: "<URL-limited repeatable list>"
+    outbound:
+      audio: Raw signed 16-bit PCM frames at 16 kHz.
+      close:
+        type: CloseStream
+    inbound:
+      fields:
+        - channel.alternatives[].transcript
+        - channel.alternatives[].words[].word
+        - channel.alternatives[].words[].punctuated_word
+        - channel.alternatives[].words[].start
+        - channel.alternatives[].words[].end
+        - channel.alternatives[].words[].confidence
+        - channel.alternatives[].words[].speaker
+        - is_final
+
+  - name: ElevenLabs realtime transcription
+    x-evidence: binary-confirmed
+    url: wss://api.elevenlabs.io/v1/speech-to-text/realtime
+    authentication:
+      location: query-or-session-config
+      name: token
+      format: "<temporary-token>"
+    configuration:
+      model_id: scribe_v2_realtime
+      audio_format: pcm_16000
+      commit_strategy: "manual | vad"
+      language_code: "<language>"
+      include_timestamps: "<boolean>"
+      tag_audio_events: "<boolean>"
+      vad_silence_threshold_secs: "<number>"
+      min_speech_duration_ms: "<number>"
+      min_silence_duration_ms: "<number>"
+    outbound:
+      message:
+        message_type: input_audio_chunk
+        audio_base_64: "<base64 PCM>"
+        commit: false
+    inboundEventTypes:
+      - session_started
+      - partial_transcript
+      - committed_transcript
+      - committed_transcript_with_timestamps
+      - server diagnostic
+      - server error
+
+x-custom-and-local-providers:
+  - name: LM Studio or OpenAI-compatible local server
+    observedBaseUrl: http://localhost:1234
+    completionSuffixes:
+      - /chat/completions
+      - /v1/chat/completions
+  - name: Local streaming server
+    observedUrl: http://localhost:8969/stream
+  - name: Gemini BYOK
+    observedHost: generativelanguage.googleapis.com
+  - name: Grok BYOK
+    observedHost: api.x.ai
+
+x-static-downloads:
+  appUpdateFeed: https://superwhisper.com/appcast.xml
+  issueReportEndpoint: https://api.superwhisper.com/upload-report
+  opencodePackageMetadata: https://registry.npmjs.org/@superwhisper/opencode/latest
+  modelBase: https://models.superwhisper.com
+  modelAssets:
+    - /argmax/canary-1b-v2_474MB.zip
+    - /argmax/parakeet-ja_483MB.zip
+    - /argmax/parakeet-v2_476MB.zip
+    - /argmax/parakeet-v3_494MB.zip
+    - /argmax/speakerkit-coreml.zip
+    - /cohere-transcribe-q4.zip
+    - /em_german_leo_mistral.Q4_K_M.gguf
+    - /emb-v1.onnx
+    - /ggml-base.bin
+    - /ggml-base.en.bin
+    - /ggml-large-distil.bin
+    - /ggml-large-v3-turbo-zh.bin
+    - /ggml-large-v3-turbo.bin
+    - /ggml-large-v3.bin
+    - /ggml-large.bin
+    - /ggml-medium-distil.bin
+    - /ggml-medium.bin
+    - /ggml-medium.en.bin
+    - /ggml-small.bin
+    - /ggml-small.en.bin
+    - /ggml-tiny.bin
+    - /ggml-tiny.en.bin
+    - /llama-3.2-3B.Q4_K_M.gguf
+    - /ministral-3-8B-instruct-2512-Q4_K_M.gguf
+    - /mistral-7b-instruct-v0.1.gguf
+    - /mistral-7b-instruct-v0.2.Q4_K_M.gguf
+    - /phi-2.Q4_K_M.gguf
+    - /s1-mini-v069.gguf
+    - /seg-v1.onnx
+    - /supervocab/common-words/
+    - /supervocab/s1-vocab-v2-160MB.zip
+    - /vad-v2.onnx
