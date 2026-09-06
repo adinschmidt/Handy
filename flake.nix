@@ -102,6 +102,10 @@
               # updated every time a git dependency changed in Cargo.lock.
               # Safe for standalone flakes (not allowed in nixpkgs, it is needed something like crate2nix).
               allowBuiltinFetchGit = true;
+              # Fetch checksum-verified crates directly from the official CDN.
+              extraRegistries = {
+                "https://github.com/rust-lang/crates.io-index" = "https://static.crates.io/crates";
+              };
             };
 
             postPatch = ''

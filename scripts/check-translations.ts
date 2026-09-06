@@ -1,4 +1,8 @@
 import fs from "fs";
+import englishFallbackKeys from "./english-fallback-keys.json";
+
+// Personal fork strings use i18next's English fallback until translated.
+const englishFallback = new Set(englishFallbackKeys);
 import path from "path";
 import { fileURLToPath } from "url";
 
@@ -123,7 +127,9 @@ function validateTranslations(): void {
 
     // Find missing keys
     const missing = referenceKeyPaths.filter(
-      (keyPath) => !hasKeyPath(langData, keyPath),
+      (keyPath) =>
+        !hasKeyPath(langData, keyPath) &&
+        !englishFallback.has(keyPath.join(".")),
     );
 
     // Find extra keys (keys in language but not in reference)
@@ -152,7 +158,7 @@ function validateTranslations(): void {
 
     if (result.valid) {
       console.log(
-        colorize(`✓ ${lang.toUpperCase()}: All keys present`, "green"),
+        colorize(`✓ ${lang.toUpperCase()}: All required keys present`, "green"),
       );
     } else {
       console.log(colorize(`✗ ${lang.toUpperCase()}: Issues found`, "red"));
@@ -212,7 +218,7 @@ function validateTranslations(): void {
   } else {
     console.log(
       colorize(
-        `\n✓ All ${totalCount} languages have complete translations!`,
+        `\n✓ All ${totalCount} languages pass translation consistency checks!`,
         "green",
       ),
     );
