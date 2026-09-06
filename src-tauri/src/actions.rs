@@ -835,7 +835,7 @@ impl ShortcutAction for TranscribeAction {
                                 let paste_time = Instant::now();
                                 let final_text = processed.final_text;
                                 let rm_for_paste = Arc::clone(&rm);
-                                ah.run_on_main_thread(move || {
+                                let paste_task = move || {
                                     if rm_for_paste.was_cancelled_since(cancel_generation) {
                                         debug!("Transcription operation cancelled before paste");
                                         utils::hide_recording_overlay(&ah_clone);
@@ -855,8 +855,37 @@ impl ShortcutAction for TranscribeAction {
                                     }
                                     utils::hide_recording_overlay(&ah_clone);
                                     set_tray_state(&ah_clone, TrayIconState::Idle);
-                                })
-                                .unwrap_or_else(|e| {
+                                };
+                                #[cfg(target_os = "linux")]
+                                {
+                                    // Clipboard reads and external tools must not block GTK's event loop.
+                                    let (tx, rx) = tokio::sync::oneshot::channel();
+                                    let overlay_handle = ah.clone();
+                                    let prepared = match ah.run_on_main_thread(move || {
+                                        let _ = tx.send(utils::prepare_for_text_injection(
+                                            &overlay_handle,
+                                        ));
+                                    }) {
+                                        Ok(()) => rx.await.unwrap_or_else(|_| {
+                                            Err("Overlay preparation interrupted".into())
+                                        }),
+                                        Err(err) => Err(err.to_string()),
+                                    };
+                                    let result = match prepared {
+                                        Ok(()) => tauri::async_runtime::spawn_blocking(paste_task)
+                                            .await
+                                            .map_err(|err| err.to_string()),
+                                        Err(err) => Err(err),
+                                    };
+                                    if let Err(err) = result {
+                                        error!("Failed to dispatch Linux paste: {}", err);
+                                        let _ = ah.emit("paste-error", ());
+                                        utils::hide_recording_overlay(&ah);
+                                        set_tray_state(&ah, TrayIconState::Idle);
+                                    }
+                                }
+                                #[cfg(not(target_os = "linux"))]
+                                ah.run_on_main_thread(paste_task).unwrap_or_else(|e| {
                                     error!("Failed to run paste on main thread: {:?}", e);
                                     utils::hide_recording_overlay(&ah);
                                     set_tray_state(&ah, TrayIconState::Idle);

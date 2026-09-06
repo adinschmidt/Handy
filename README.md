@@ -459,7 +459,7 @@ If it is already installed and you still see startup problems, try reinstalling 
 
 **2. Disable the GTK layer shell overlay (`HANDY_NO_GTK_LAYER_SHELL`)**
 
-If installing the library does not help, you can skip `gtk-layer-shell` initialization entirely as a workaround. On some compositors (notably KDE Plasma under Wayland) it has been reported to interact poorly with the recording overlay. With this variable set, the overlay falls back to a regular always-on-top window:
+If installing the library does not help, you can skip `gtk-layer-shell` initialization entirely as a workaround. On some compositors (notably KDE Plasma under Wayland) it has been reported to interact poorly with the recording overlay. With this variable set, Wayland disables the overlay to avoid taking focus from the dictation target. X11 retains the regular always-on-top fallback:
 
 ```bash
 HANDY_NO_GTK_LAYER_SHELL=1 handy

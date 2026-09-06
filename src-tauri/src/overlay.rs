@@ -409,9 +409,16 @@ pub fn create_recording_overlay(app_handle: &AppHandle) {
         Ok(window) => {
             #[cfg(target_os = "linux")]
             {
+                use gtk::prelude::GtkWindowExt;
+                if let Ok(gtk_window) = window.gtk_window() {
+                    gtk_window.set_accept_focus(false);
+                    gtk_window.set_focus_on_map(false);
+                }
                 // Try to initialize GTK layer shell, ignore errors if compositor doesn't support it
                 if init_gtk_layer_shell(&window) {
                     debug!("GTK layer shell initialized for overlay window");
+                } else if utils::is_wayland() {
+                    log::warn!("Recording overlay disabled: Wayland layer shell is unavailable");
                 } else {
                     debug!("GTK layer shell not available, falling back to regular window");
                 }
@@ -489,6 +496,11 @@ fn show_overlay_state_on_main(app_handle: &AppHandle, state: &str) {
     // Size the overlay for this state (compact vs. streaming), then position it.
     let (width, height) = overlay_dimensions(state);
     if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
+        #[cfg(target_os = "linux")]
+        if utils::is_wayland() && !LAYER_SHELL_ACTIVE.load(Ordering::SeqCst) {
+            return;
+        }
+
         // Invalidate any delayed hide still in flight from a previous session
         // (see `hide_recording_overlay`).
         OVERLAY_SHOW_GENERATION.fetch_add(1, Ordering::SeqCst);
@@ -685,6 +697,18 @@ pub fn hide_recording_overlay(app_handle: &AppHandle) {
             let _ = window_clone.hide();
         });
     }
+}
+
+/// Hide the Linux overlay before dispatching clipboard or keyboard input.
+#[cfg(target_os = "linux")]
+pub fn prepare_for_text_injection(app_handle: &AppHandle) -> Result<(), String> {
+    if let Some(window) = app_handle.get_webview_window("recording_overlay") {
+        let _ = window.emit("hide-overlay", ());
+        window
+            .hide()
+            .map_err(|err| format!("Failed to hide overlay before paste: {}", err))?;
+    }
+    Ok(())
 }
 
 // Cached "overlay is enabled" flag, kept in sync with overlay_style. Avoids

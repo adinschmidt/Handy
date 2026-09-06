@@ -32,7 +32,10 @@ fn write_text_to_clipboard(app_handle: &AppHandle, text: &str) -> Result<(), Str
     #[cfg(target_os = "linux")]
     if is_wayland() && is_wl_copy_available() {
         info!("Using wl-copy for clipboard write on Wayland");
-        return write_clipboard_via_wl_copy(text);
+        match write_clipboard_via_wl_copy(text) {
+            Ok(()) => return Ok(()),
+            Err(err) => log::warn!("wl-copy failed, falling back to Tauri clipboard: {}", err),
+        }
     }
 
     app_handle
@@ -128,30 +131,40 @@ fn try_send_key_combo_linux(paste_method: &PasteMethod) -> Result<bool, String> 
         // the virtual-keyboard-v1 protocol).
         if !is_kde_wayland() && !is_gnome_wayland() && is_wtype_available() {
             info!("Using wtype for key combo");
-            send_key_combo_via_wtype(paste_method)?;
-            return Ok(true);
+            match send_key_combo_via_wtype(paste_method) {
+                Ok(()) => return Ok(true),
+                Err(err) => log::warn!("Linux input tool failed, trying fallback: {}", err),
+            }
         }
         if is_dotool_available() {
             info!("Using dotool for key combo");
-            send_key_combo_via_dotool(paste_method)?;
-            return Ok(true);
+            match send_key_combo_via_dotool(paste_method) {
+                Ok(()) => return Ok(true),
+                Err(err) => log::warn!("Linux input tool failed, trying fallback: {}", err),
+            }
         }
         if is_ydotool_available() {
             info!("Using ydotool for key combo");
-            send_key_combo_via_ydotool(paste_method)?;
-            return Ok(true);
+            match send_key_combo_via_ydotool(paste_method) {
+                Ok(()) => return Ok(true),
+                Err(err) => log::warn!("Linux input tool failed, trying fallback: {}", err),
+            }
         }
     } else {
         // X11: prefer xdotool, then ydotool
         if is_xdotool_available() {
             info!("Using xdotool for key combo");
-            send_key_combo_via_xdotool(paste_method)?;
-            return Ok(true);
+            match send_key_combo_via_xdotool(paste_method) {
+                Ok(()) => return Ok(true),
+                Err(err) => log::warn!("Linux input tool failed, trying fallback: {}", err),
+            }
         }
         if is_ydotool_available() {
             info!("Using ydotool for key combo");
-            send_key_combo_via_ydotool(paste_method)?;
-            return Ok(true);
+            match send_key_combo_via_ydotool(paste_method) {
+                Ok(()) => return Ok(true),
+                Err(err) => log::warn!("Linux input tool failed, trying fallback: {}", err),
+            }
         }
     }
 
@@ -202,8 +215,10 @@ fn try_direct_typing_linux(text: &str, preferred_tool: TypingTool) -> Result<boo
         // KDE Wayland: prefer kwtype (uses KDE Fake Input protocol, supports umlauts)
         if is_kde_wayland() && is_kwtype_available() {
             info!("Using kwtype for direct text input on KDE Wayland");
-            type_text_via_kwtype(text)?;
-            return Ok(true);
+            match type_text_via_kwtype(text) {
+                Ok(()) => return Ok(true),
+                Err(err) => log::warn!("Linux input tool failed, trying fallback: {}", err),
+            }
         }
         // Wayland: prefer wtype, then dotool, then ydotool
         // Note: wtype doesn't work on KDE (no zwp_virtual_keyboard_manager_v1 support)
@@ -211,30 +226,40 @@ fn try_direct_typing_linux(text: &str, preferred_tool: TypingTool) -> Result<boo
         // the virtual-keyboard-v1 protocol).
         if !is_kde_wayland() && !is_gnome_wayland() && is_wtype_available() {
             info!("Using wtype for direct text input");
-            type_text_via_wtype(text)?;
-            return Ok(true);
+            match type_text_via_wtype(text) {
+                Ok(()) => return Ok(true),
+                Err(err) => log::warn!("Linux input tool failed, trying fallback: {}", err),
+            }
         }
         if is_dotool_available() {
             info!("Using dotool for direct text input");
-            type_text_via_dotool(text)?;
-            return Ok(true);
+            match type_text_via_dotool(text) {
+                Ok(()) => return Ok(true),
+                Err(err) => log::warn!("Linux input tool failed, trying fallback: {}", err),
+            }
         }
         if is_ydotool_available() {
             info!("Using ydotool for direct text input");
-            type_text_via_ydotool(text)?;
-            return Ok(true);
+            match type_text_via_ydotool(text) {
+                Ok(()) => return Ok(true),
+                Err(err) => log::warn!("Linux input tool failed, trying fallback: {}", err),
+            }
         }
     } else {
         // X11: prefer xdotool, then ydotool
         if is_xdotool_available() {
             info!("Using xdotool for direct text input");
-            type_text_via_xdotool(text)?;
-            return Ok(true);
+            match type_text_via_xdotool(text) {
+                Ok(()) => return Ok(true),
+                Err(err) => log::warn!("Linux input tool failed, trying fallback: {}", err),
+            }
         }
         if is_ydotool_available() {
             info!("Using ydotool for direct text input");
-            type_text_via_ydotool(text)?;
-            return Ok(true);
+            match type_text_via_ydotool(text) {
+                Ok(()) => return Ok(true),
+                Err(err) => log::warn!("Linux input tool failed, trying fallback: {}", err),
+            }
         }
     }
 
@@ -474,6 +499,22 @@ fn type_text_via_xdotool(text: &str) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(any(target_os = "linux", test))]
+fn dotool_type_commands(text: &str) -> Vec<String> {
+    let mut commands = Vec::new();
+    let mut lines = text.split('\n').peekable();
+    while let Some(line) = lines.next() {
+        let line = line.strip_suffix('\r').unwrap_or(line);
+        if !line.is_empty() {
+            commands.push(format!("type {}", line));
+        }
+        if lines.peek().is_some() {
+            commands.push("key enter".to_string());
+        }
+    }
+    commands
+}
+
 /// Type text directly via dotool (works on both Wayland and X11 via uinput).
 #[cfg(target_os = "linux")]
 fn type_text_via_dotool(text: &str) -> Result<(), String> {
@@ -482,13 +523,16 @@ fn type_text_via_dotool(text: &str) -> Result<(), String> {
 
     let mut child = Command::new("dotool")
         .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| format!("Failed to spawn dotool: {}", e))?;
 
     if let Some(mut stdin) = child.stdin.take() {
-        // dotool uses "type <text>" command
-        writeln!(stdin, "type {}", text)
-            .map_err(|e| format!("Failed to write to dotool stdin: {}", e))?;
+        for command in dotool_type_commands(text) {
+            writeln!(stdin, "{}", command)
+                .map_err(|e| format!("Failed to write to dotool stdin: {}", e))?;
+        }
     }
 
     let output = child
@@ -543,14 +587,27 @@ fn type_text_via_kwtype(text: &str) -> Result<(), String> {
 /// daemon that inherits piped fds, causing read_to_end to hang indefinitely.
 #[cfg(target_os = "linux")]
 fn write_clipboard_via_wl_copy(text: &str) -> Result<(), String> {
+    use std::io::Write;
     use std::process::Stdio;
-    let status = Command::new("wl-copy")
-        .arg("--")
-        .arg(text)
+    let mut child = Command::new("wl-copy")
+        .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .status()
+        .spawn()
         .map_err(|e| format!("Failed to execute wl-copy: {}", e))?;
+    let write_result = child
+        .stdin
+        .take()
+        .ok_or_else(|| "Failed to open wl-copy stdin".to_string())
+        .and_then(|mut stdin| {
+            stdin
+                .write_all(text.as_bytes())
+                .map_err(|e| format!("Failed to write to wl-copy: {}", e))
+        });
+    let status = child
+        .wait()
+        .map_err(|e| format!("Failed to wait for wl-copy: {}", e))?;
+    write_result?;
 
     if !status.success() {
         return Err("wl-copy failed".into());
@@ -865,6 +922,20 @@ pub fn paste(text: String, app_handle: AppHandle) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn dotool_preserves_blank_lines_and_treats_commands_as_text() {
+        assert_eq!(
+            super::dotool_type_commands("first\r\n\nkey ctrl+q\n"),
+            [
+                "type first",
+                "key enter",
+                "key enter",
+                "type key ctrl+q",
+                "key enter"
+            ]
+        );
+    }
+
     use super::*;
     use std::cell::Cell;
 
