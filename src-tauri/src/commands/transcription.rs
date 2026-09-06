@@ -47,11 +47,14 @@ pub fn set_transcription_provider(
     provider: TranscriptionProvider,
 ) -> Result<(), String> {
     let mut settings = get_settings(&app);
-    // Codex ASR authentication is optional, so only ElevenLabs is gated here.
+    // Codex ASR authentication is optional.
     if provider == TranscriptionProvider::ElevenlabsScribe
         && settings.transcription_api_key(provider).is_none()
     {
         return Err("ElevenLabs API key is required".to_string());
+    }
+    if provider == TranscriptionProvider::SuperwhisperScribe {
+        settings.superwhisper_credentials()?;
     }
     settings.selected_transcription_provider = provider;
     write_settings(&app, settings.clone());
@@ -63,7 +66,9 @@ pub fn set_transcription_provider(
                 manager.initiate_model_load();
             }
         }
-        TranscriptionProvider::CodexAsr | TranscriptionProvider::ElevenlabsScribe => {
+        TranscriptionProvider::CodexAsr
+        | TranscriptionProvider::ElevenlabsScribe
+        | TranscriptionProvider::SuperwhisperScribe => {
             manager
                 .unload_model()
                 .map_err(|err| format!("Failed to unload local model: {}", err))?;
@@ -125,6 +130,69 @@ pub fn change_transcription_api_key(
     write_settings(&app, settings);
     crate::tray::update_tray_menu(&app);
     Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_superwhisper_credentials(
+    app: AppHandle,
+    x_id: String,
+    x_license: String,
+    x_signature: String,
+) -> Result<(), String> {
+    let mut settings = get_settings(&app);
+    let previous_provider = settings.selected_transcription_provider;
+    settings.set_superwhisper_credentials(&x_id, &x_license, &x_signature)?;
+    let provider = settings.selected_transcription_provider;
+    write_settings(&app, settings);
+    if previous_provider != provider {
+        crate::transcription_provider::prepare_local_model(&app, &get_settings(&app));
+        let _ = app.emit("transcription-provider-changed", provider);
+    }
+    crate::tray::update_tray_menu(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_superwhisper_audio_events(app: AppHandle, enabled: Option<bool>) {
+    let mut settings = get_settings(&app);
+    settings.superwhisper_audio_events = enabled;
+    write_settings(&app, settings);
+}
+
+/// Import only when requested, without launching Superwhisper or sending traffic.
+#[tauri::command]
+#[specta::specta]
+pub async fn import_superwhisper_credentials(
+    app: AppHandle,
+) -> Result<(), crate::superwhisper_import::SuperwhisperImportError> {
+    use crate::superwhisper_import::SuperwhisperImportError;
+    #[cfg(target_os = "macos")]
+    {
+        let path = app
+            .path()
+            .home_dir()
+            .map_err(|_| SuperwhisperImportError::CacheUnavailable)?
+            .join("Library/Caches/com.superduper.superwhisper/Cache.db");
+        let credentials = tauri::async_runtime::spawn_blocking(move || {
+            crate::superwhisper_import::read_credentials(&path)
+        })
+        .await
+        .map_err(|_| SuperwhisperImportError::CacheUnavailable)??;
+        change_superwhisper_credentials(
+            app,
+            credentials.x_id,
+            credentials.x_license,
+            credentials.x_signature,
+        )
+        .map_err(|_| SuperwhisperImportError::NoCredentials)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = app;
+        Err(SuperwhisperImportError::UnsupportedPlatform)
+    }
 }
 
 #[cfg(test)]

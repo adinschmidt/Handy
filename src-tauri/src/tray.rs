@@ -61,6 +61,7 @@ struct MenuInputs {
     selected_model: String,
     selected_provider: settings::TranscriptionProvider,
     elevenlabs_configured: bool,
+    superwhisper_configured: bool,
     /// `(id, name)` of downloaded models, sorted by name.
     downloaded_models: Vec<(String, String)>,
     locale: String,
@@ -336,6 +337,7 @@ fn compute_desired(app: &AppHandle, icon_state: TrayIconState) -> TrayDesired {
             elevenlabs_configured: settings
                 .transcription_api_key(settings::TranscriptionProvider::ElevenlabsScribe)
                 .is_some(),
+            superwhisper_configured: settings.superwhisper_credentials().is_ok(),
             selected_model: settings.selected_model,
             downloaded_models,
             locale: settings.app_language,
@@ -545,6 +547,9 @@ fn build_menu(app: &AppHandle, inputs: &MenuInputs) -> tauri::Result<(Menu<tauri
             .unwrap_or_else(|| strings.model.clone());
 
         let submenu_label = match inputs.selected_provider {
+            settings::TranscriptionProvider::SuperwhisperScribe => {
+                strings.superwhisper_scribe.clone()
+            }
             settings::TranscriptionProvider::Local => local_label,
             settings::TranscriptionProvider::CodexAsr => "Codex ASR".to_string(),
             settings::TranscriptionProvider::ElevenlabsScribe => "ElevenLabs Scribe".to_string(),
@@ -573,6 +578,12 @@ fn build_menu(app: &AppHandle, inputs: &MenuInputs) -> tauri::Result<(Menu<tauri
                 "provider_select:elevenlabs_scribe",
                 "ElevenLabs Scribe",
                 inputs.elevenlabs_configured,
+            ),
+            (
+                settings::TranscriptionProvider::SuperwhisperScribe,
+                "provider_select:superwhisper_scribe",
+                strings.superwhisper_scribe.as_str(),
+                inputs.superwhisper_configured,
             ),
         ] {
             let item = CheckMenuItem::with_id(
@@ -733,6 +744,7 @@ mod tests {
             selected_model: "small".to_string(),
             selected_provider: crate::settings::TranscriptionProvider::Local,
             elevenlabs_configured: false,
+            superwhisper_configured: false,
             downloaded_models: vec![("small".to_string(), "Small".to_string())],
             locale: "en".to_string(),
             update_checks_enabled: true,
@@ -793,5 +805,11 @@ mod tests {
         let mut configured = cloud.clone();
         configured.elevenlabs_configured = true;
         assert_ne!(cloud, configured);
+        let mut superwhisper = local.clone();
+        superwhisper.selected_provider = crate::settings::TranscriptionProvider::SuperwhisperScribe;
+        assert_ne!(local, superwhisper);
+        let mut configured = superwhisper.clone();
+        configured.superwhisper_configured = true;
+        assert_ne!(superwhisper, configured);
     }
 }

@@ -1,3 +1,4 @@
+import { SuperwhisperSettings } from "./SuperwhisperSettings";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ask } from "@tauri-apps/plugin-dialog";
@@ -481,6 +482,7 @@ export const ModelsSettings: React.FC = () => {
             </p>
           )}
         </div>
+        <SuperwhisperSettings />
       </section>
 
       <div className="pt-2">

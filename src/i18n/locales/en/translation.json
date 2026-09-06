@@ -7,7 +7,8 @@
     "model": "Model",
     "quit": "Quit",
     "cancel": "Cancel",
-    "secureInputWarning": "⚠ Shortcuts blocked by Secure Input"
+    "secureInputWarning": "⚠ Shortcuts blocked by Secure Input",
+    "superwhisperScribe": "Superwhisper proxy (Scribe)"
   },
   "sidebar": {
     "general": "General",
@@ -253,7 +254,31 @@
           "keySaveError": "Could not save the ElevenLabs API key.",
           "audioEventsDescription": "Keep detected non-speech sounds, like (applause) or (laughter), in the transcript."
         },
-        "apiKeyOptional": "API key (optional)"
+        "apiKeyOptional": "API key (optional)",
+        "superwhisper": {
+          "name": "Superwhisper proxy (Scribe)",
+          "description": "Personal compatibility for your own authorized Superwhisper installation. Audio is sent to Superwhisper for transcription.",
+          "shortDescription": "Personal Superwhisper compatibility",
+          "storageWarning": "Credentials are stored in Handy's local settings file, not an OS keychain.",
+          "deviceId": "Device ID",
+          "licenseId": "License ID",
+          "signature": "Signature",
+          "credentialsRequired": "Save a valid device ID, license ID, and signature first.",
+          "save": "Save credentials",
+          "clear": "Clear credentials",
+          "saved": "Credentials saved.",
+          "saveError": "Could not save Superwhisper credentials. Check all three values.",
+          "selectError": "Could not select Superwhisper. Check the saved credentials.",
+          "import": "Import from Superwhisper",
+          "imported": "Credentials imported and saved. Their validity will be checked on your next transcription.",
+          "importMissing": "No usable credentials found. Transcribe something in Superwhisper, then try importing again.",
+          "importError": "Could not read the Superwhisper cache. Open Superwhisper and transcribe something, then try again, or enter credentials manually.",
+          "audioEvents": "Audio-event tagging",
+          "audioEventsDefault": "Default",
+          "audioEventsOn": "On",
+          "audioEventsOff": "Off",
+          "audioEventsDescription": "Include or suppress sounds such as laughter and applause. Default leaves the choice to Superwhisper."
+        }
       },
       "local": {
         "title": "Local"

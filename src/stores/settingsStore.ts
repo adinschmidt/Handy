@@ -4,6 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import type {
   AppSettings as Settings,
   AudioDevice,
+  TranscriptionProvider,
   TranscribeAcceleratorSetting,
   OrtAcceleratorSetting,
   ShortcutActivation,
@@ -42,13 +43,19 @@ interface SettingsStore {
   isUpdatingKey: (key: string) => boolean;
   playTestSound: (soundType: "start" | "stop") => Promise<void>;
   checkCustomSounds: () => Promise<void>;
-  setTranscriptionProvider: (
-    provider: "local" | "codex_asr" | "elevenlabs_scribe",
-  ) => Promise<void>;
+  setTranscriptionProvider: (provider: TranscriptionProvider) => Promise<void>;
   updateCodexAsrBaseUrl: (baseUrl: string) => Promise<void>;
   updateTranscriptionApiKey: (
     provider: "codex_asr" | "elevenlabs_scribe",
     apiKey: string,
+  ) => Promise<void>;
+  importSuperwhisperCredentials: () => Promise<
+    Settings["transcription_api_keys"]
+  >;
+  updateSuperwhisperCredentials: (
+    xId: string,
+    xLicense: string,
+    xSignature: string,
   ) => Promise<void>;
   setPostProcessProvider: (providerId: string) => Promise<void>;
   updatePostProcessSetting: (
@@ -90,6 +97,8 @@ const DEFAULT_AUDIO_DEVICE: AudioDevice = {
 const settingUpdaters: {
   [K in keyof Settings]?: (value: Settings[K]) => Promise<unknown>;
 } = {
+  superwhisper_audio_events: (value) =>
+    commands.changeSuperwhisperAudioEvents(value ?? null),
   always_on_microphone: (value) =>
     commands.updateMicrophoneMode(value as boolean),
   audio_feedback: (value) =>
@@ -546,6 +555,35 @@ export const useSettingsStore = create<SettingsStore>()(
         throw error;
       } finally {
         setUpdating(updateKey, false);
+      }
+    },
+
+    importSuperwhisperCredentials: async () => {
+      const { setUpdating, refreshSettings } = get();
+      setUpdating("superwhisper_credentials", true);
+      try {
+        const result = await commands.importSuperwhisperCredentials();
+        if (result.status === "error") throw new Error(result.error);
+        await refreshSettings();
+        return get().settings?.transcription_api_keys;
+      } finally {
+        setUpdating("superwhisper_credentials", false);
+      }
+    },
+
+    updateSuperwhisperCredentials: async (xId, xLicense, xSignature) => {
+      const { setUpdating, refreshSettings } = get();
+      setUpdating("superwhisper_credentials", true);
+      try {
+        const result = await commands.changeSuperwhisperCredentials(
+          xId,
+          xLicense,
+          xSignature,
+        );
+        if (result.status === "error") throw new Error(result.error);
+        await refreshSettings();
+      } finally {
+        setUpdating("superwhisper_credentials", false);
       }
     },
 

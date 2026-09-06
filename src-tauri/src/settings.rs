@@ -1,3 +1,6 @@
+mod superwhisper;
+pub(crate) use superwhisper::SuperwhisperCredentials;
+
 use crate::utils;
 use log::{debug, warn};
 use serde::de::{self, Visitor};
@@ -114,6 +117,7 @@ pub enum TranscriptionProvider {
     Local,
     CodexAsr,
     ElevenlabsScribe,
+    SuperwhisperScribe,
 }
 
 impl TranscriptionProvider {
@@ -121,7 +125,7 @@ impl TranscriptionProvider {
     /// [`AppSettings::transcription_api_keys`]. Local inference needs none.
     pub fn api_key_id(self) -> Option<&'static str> {
         match self {
-            TranscriptionProvider::Local => None,
+            TranscriptionProvider::Local | TranscriptionProvider::SuperwhisperScribe => None,
             TranscriptionProvider::CodexAsr => Some("codex_asr"),
             TranscriptionProvider::ElevenlabsScribe => Some("elevenlabs_scribe"),
         }
@@ -434,6 +438,9 @@ pub struct AppSettings {
     /// `(laughter)`) and keep them in the transcript.
     #[serde(default = "default_elevenlabs_audio_events")]
     pub elevenlabs_audio_events: bool,
+    /// None preserves the proxy default by omitting tag_audio_events.
+    #[serde(default)]
+    pub superwhisper_audio_events: Option<bool>,
     #[serde(default)]
     pub onboarding_completed: bool,
     #[serde(default = "default_always_on_microphone")]
@@ -966,6 +973,7 @@ pub fn get_default_settings() -> AppSettings {
         codex_asr_base_url: default_codex_asr_base_url(),
         transcription_api_keys: SecretMap::default(),
         elevenlabs_audio_events: default_elevenlabs_audio_events(),
+        superwhisper_audio_events: None,
         onboarding_completed: false,
         always_on_microphone: false,
         selected_microphone: None,

@@ -2,7 +2,17 @@
 
 ## Status and source history
 
-Superwhisper support is not implemented in Handy yet. The July 27-28, 2026 investigation recovered the request format and demonstrated a successful transcription replay. The intended first implementation is an opt-in Scribe provider for a personal licensed Superwhisper account, initially for Linux.
+Superwhisper Scribe is implemented as an opt-in cloud provider for a personal licensed account. Models settings accepts the device ID, license ID, and signature as one credential set. The compact selector, general settings summary, and tray support the provider. Clearing credentials switches an active Superwhisper provider back to Local.
+
+A September 6, 2026 disposable live probe confirmed that the proxy accepts Handy's existing 16 kHz mono PCM16 WAV encoding and returns the expected phrase. No Opus encoder is required. See the dated evidence in [Research findings](RESEARCH_FINDINGS.md).
+
+`src-tauri/src/settings/superwhisper.rs` validates and atomically updates the three secret-map entries. `src-tauri/src/transcription_provider/superwhisper.rs` implements the multipart request, bounded vocabulary hints, response parsing, and audio-event protection. Its ignored `live_wav_compatibility_probe` test accepts `SW_PROBE_WAV`, `SW_PROBE_EXPECTED`, and the three `SW_X_*` environment variables. It re-encodes 16 kHz mono PCM16 input with Handy's WAV encoder and sends one request. Run it only with explicit authorization and disposable audio.
+
+On macOS, **Import from Superwhisper** reads the local Superwhisper request cache and saves the newest valid credential set. It scans only known Superwhisper endpoints and never launches Superwhisper or sends a request. If no usable request is cached, transcribe something in Superwhisper and retry. Cached credentials may have expired; importing does not verify account access. Linux retains manual credential entry.
+
+Requests on every OS use the captured `X-Platform: macos` and Superwhisper 2.16.6 User-Agent, including its macOS 26.5.2 version string. These fixed compatibility headers do not come from the current installation. HTTP and TLS still use Handy's reqwest client.
+
+Credentials use Handy's existing local settings file, not an OS keychain. The credential form masks all three values. Invalid or incomplete sets cannot be saved or selected, and HTTP errors omit response bodies. S1 and diarization remain out of scope. Audio-event tagging has a Default/On/Off control. Default omits `tag_audio_events`; On and Off send `true` and `false`. Manual recordings returned clap, sigh, and throat-clearing tags. Explicit Off behavior has not yet been compared. Disable Voice Activity Detection during comparison recordings so local filtering does not remove non-speech sounds before upload.
 
 This checkout is the `adinschmidt/Handy` fork of `cjpais/Handy`:
 
@@ -26,13 +36,13 @@ Read these in order:
 
 Keep the original findings and plan as historical references. Add dated evidence when a new probe confirms or changes a finding. The original artifact copies also remain at `/Users/adin/Documents/Codex/2026-07-27/usin/outputs/`.
 
-## First implementation
+## Protocol and scope
 
-Add a provider to the existing pipeline in `src-tauri/src/transcription_provider/`, using `elevenlabs.rs` as the closest reference. Do not create another recording or output pipeline.
+The provider uses the existing recording and output pipeline in `src-tauri/src/transcription_provider/`. Its transport follows the direct ElevenLabs provider while keeping Superwhisper's authentication and multipart fields separate.
 
-The July replay verified `POST https://api.superwhisper.com/elevenlabs/v1/transcribe` with a multipart audio file and the `X-ID`, `X-License`, `X-Signature`, and `X-Platform: macos` headers. The observed credential set worked across different bodies and paths. Signature derivation and current credential validity remain unverified.
+The July replay verified `POST https://api.superwhisper.com/elevenlabs/v1/transcribe` with a multipart audio file and the `X-ID`, `X-License`, `X-Signature`, and `X-Platform: macos` headers. The observed credential set worked across different bodies and paths. Signature derivation remains unknown. The September 6 probes confirmed validity of the tested credential set.
 
-The first unresolved protocol question is whether the proxy accepts Handy's existing WAV encoding. The captured request used Ogg Opus. Resolve that with a single explicitly authorized disposable-audio probe before adding an encoder dependency. Mock tests cannot establish server acceptance of an audio format.
+The July capture used Ogg Opus. The September 6 live probe confirmed WAV acceptance, so the provider uses Handy's existing encoder.
 
 Keep S1 Ultra and its short-lived JWT acquisition/refresh out of the first implementation. Keep license activation, sync, background polling, and account management out of scope.
 
@@ -50,5 +60,7 @@ Keep S1 Ultra and its short-lived JWT acquisition/refresh out of the first imple
 ### Verification
 
 Install frontend dependencies with `bun install --frozen-lockfile`. Run `bun run build` and `bun run lint` for frontend changes. Run `cargo check --tests` and focused `cargo test --lib transcription_provider` from `src-tauri` for provider changes, plus settings/tray tests when touching those integrations. Follow `BUILD.md` for native dependencies.
+
+Generate Tauri bindings without launching the app with `cargo test --lib export_typescript_bindings -- --ignored` from `src-tauri`.
 
 Keep credentials outside the repository. The standalone script can read environment variables or `~/.config/superwhisper-replay/env`; never copy that file into this directory. Do not log request headers or response bodies containing private transcripts. Live transcription sends audio and may consume account usage, so obtain explicit authorization for the recording and request. Build and test without launching the installed Handy app or writing its settings.

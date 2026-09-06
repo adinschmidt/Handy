@@ -1,6 +1,10 @@
 import { useEffect } from "react";
 import { useSettingsStore } from "../stores/settingsStore";
-import type { AppSettings as Settings, AudioDevice } from "@/bindings";
+import type {
+  AppSettings as Settings,
+  AudioDevice,
+  TranscriptionProvider,
+} from "@/bindings";
 
 interface UseSettingsReturn {
   // State
@@ -31,13 +35,20 @@ interface UseSettingsReturn {
   getSetting: <K extends keyof Settings>(key: K) => Settings[K] | undefined;
 
   // Transcription provider helpers
-  setTranscriptionProvider: (
-    provider: "local" | "codex_asr" | "elevenlabs_scribe",
-  ) => Promise<void>;
+  setTranscriptionProvider: (provider: TranscriptionProvider) => Promise<void>;
   updateCodexAsrBaseUrl: (baseUrl: string) => Promise<void>;
   updateTranscriptionApiKey: (
     provider: "codex_asr" | "elevenlabs_scribe",
     apiKey: string,
+  ) => Promise<void>;
+
+  importSuperwhisperCredentials: () => Promise<
+    Settings["transcription_api_keys"]
+  >;
+  updateSuperwhisperCredentials: (
+    xId: string,
+    xLicense: string,
+    xSignature: string,
   ) => Promise<void>;
 
   // Post-processing helpers
@@ -84,6 +95,8 @@ export const useSettings = (): UseSettingsReturn => {
     setTranscriptionProvider: store.setTranscriptionProvider,
     updateCodexAsrBaseUrl: store.updateCodexAsrBaseUrl,
     updateTranscriptionApiKey: store.updateTranscriptionApiKey,
+    updateSuperwhisperCredentials: store.updateSuperwhisperCredentials,
+    importSuperwhisperCredentials: store.importSuperwhisperCredentials,
     setPostProcessProvider: store.setPostProcessProvider,
     updatePostProcessBaseUrl: store.updatePostProcessBaseUrl,
     updatePostProcessApiKey: store.updatePostProcessApiKey,

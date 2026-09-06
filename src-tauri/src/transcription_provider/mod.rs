@@ -1,5 +1,6 @@
 mod codex;
 mod elevenlabs;
+mod superwhisper;
 
 use crate::audio_toolkit::OutputLanguageEvidence;
 use crate::managers::model::ModelManager;
@@ -87,6 +88,9 @@ impl ProviderTranscript {
             TranscriptionProvider::ElevenlabsScribe => {
                 elevenlabs::normalize_language(&settings.selected_language)
             }
+            TranscriptionProvider::SuperwhisperScribe => {
+                superwhisper::normalize_language(&settings.selected_language)
+            }
             TranscriptionProvider::Local => None,
         };
         let evidence = language_hint
@@ -152,6 +156,20 @@ async fn transcribe_cloud(
                 samples,
                 language.as_deref(),
                 settings.elevenlabs_audio_events,
+            )
+            .await
+        }
+        TranscriptionProvider::SuperwhisperScribe => {
+            let credentials = settings
+                .superwhisper_credentials()
+                .map_err(|error| anyhow!(error))?;
+            let language = superwhisper::normalize_language(&settings.selected_language);
+            superwhisper::transcribe(
+                credentials,
+                samples,
+                language.as_deref(),
+                &settings.custom_words,
+                settings.superwhisper_audio_events,
             )
             .await
         }

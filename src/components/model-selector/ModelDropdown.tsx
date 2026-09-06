@@ -1,6 +1,6 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
-import type { ModelInfo } from "@/bindings";
+import type { ModelInfo, TranscriptionProvider } from "@/bindings";
 import {
   getTranslatedModelName,
   getTranslatedModelDescription,
@@ -9,10 +9,11 @@ import {
 interface ModelDropdownProps {
   models: ModelInfo[];
   currentModelId: string;
-  activeProvider: "local" | "codex_asr" | "elevenlabs_scribe";
+  activeProvider: TranscriptionProvider;
   elevenLabsConfigured: boolean;
+  superwhisperConfigured: boolean;
   onModelSelect: (modelId: string) => void;
-  onProviderSelect: (provider: "codex_asr" | "elevenlabs_scribe") => void;
+  onProviderSelect: (provider: Exclude<TranscriptionProvider, "local">) => void;
 }
 
 const ModelDropdown: React.FC<ModelDropdownProps> = ({
@@ -20,6 +21,7 @@ const ModelDropdown: React.FC<ModelDropdownProps> = ({
   currentModelId,
   activeProvider,
   elevenLabsConfigured,
+  superwhisperConfigured,
   onModelSelect,
   onProviderSelect,
 }) => {
@@ -145,6 +147,37 @@ const ModelDropdown: React.FC<ModelDropdownProps> = ({
             </div>
           </div>
           {activeProvider === "elevenlabs_scribe" && (
+            <div className="text-xs text-logo-primary">
+              {t("modelSelector.active")}
+            </div>
+          )}
+        </div>
+      </button>
+      <button
+        type="button"
+        onClick={() => onProviderSelect("superwhisper_scribe")}
+        disabled={!superwhisperConfigured}
+        title={
+          superwhisperConfigured
+            ? undefined
+            : t("settings.models.cloud.superwhisper.credentialsRequired")
+        }
+        className={`w-full px-3 py-2 text-start hover:bg-mid-gray/10 transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+          activeProvider === "superwhisper_scribe"
+            ? "bg-logo-primary/10 text-logo-primary"
+            : ""
+        }`}
+      >
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="text-sm text-text/80">
+              {t("settings.models.cloud.superwhisper.name")}
+            </div>
+            <div className="text-xs text-text/40 italic pe-4">
+              {t("settings.models.cloud.superwhisper.shortDescription")}
+            </div>
+          </div>
+          {activeProvider === "superwhisper_scribe" && (
             <div className="text-xs text-logo-primary">
               {t("modelSelector.active")}
             </div>

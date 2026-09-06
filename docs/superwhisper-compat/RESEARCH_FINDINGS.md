@@ -955,3 +955,24 @@ Remaining limitations:
 ## Bottom line
 
 The current Default-mode transcription request is reconstructed and independently replayed down to its method, endpoint, complete header set, multipart part names, audio container/codec, and response schema. The only unresolved element needed for a caller that cannot reuse current credentials is how Superwhisper derives or provisions `X-Signature`; the successful curl test proves that a current authorized header set is sufficient for practical replay without reproducing that derivation.
+
+
+## September 6, 2026: Handy WAV compatibility
+
+A live probe through Handy's Rust Superwhisper request client accepted a newly synthesized disposable phrase and returned matching text. The test made one transcription POST with the captured credential header set, read locally without printing or persisting the values.
+
+- Audio: Handy's `encode_wav_bytes`, 16 kHz mono PCM16 WAV.
+- Multipart file: `file`, filename `recording.wav`, MIME type `audio/wav`.
+- Language: `language_code=en`.
+- No vocabulary hints, diarization, model selector, or audio-event setting.
+- Result: successful HTTP response, valid transcript JSON, and the expected phrase matched after ignoring punctuation and case.
+- The test completed in 1.02 seconds, including request and response handling.
+
+This confirms WAV acceptance and credential reuse for the tested set on this date. It does not establish signature derivation or future credential validity. The client needs no Ogg Opus encoder dependency.
+
+A second disposable live test on the same date passed through Handy's cloud provider dispatcher and normal transcript cleanup. It made one POST and matched the expected phrase in 0.86 seconds. Neither test launched the desktop app. Credential values were absent from the test and build logs.
+
+
+## September 6, 2026: audio-event output
+
+Manual dictation through the Handy compatibility provider returned bracketed clap, sigh, and throat-clearing descriptions. The setting was On when inspected afterward. This confirms that audio-event output reaches Handy. A controlled On/Off comparison is still needed to establish whether the proxy honors the explicit toggle or uses its own default.

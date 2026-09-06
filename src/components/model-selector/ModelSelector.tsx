@@ -1,3 +1,5 @@
+import { hasSuperwhisperCredentials } from "@/lib/superwhisper";
+import type { TranscriptionProvider } from "@/bindings";
 import React, { useState, useRef, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { listen } from "@tauri-apps/api/event";
@@ -160,7 +162,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onError }) => {
   };
 
   const handleProviderSelect = async (
-    provider: "codex_asr" | "elevenlabs_scribe",
+    provider: Exclude<TranscriptionProvider, "local">,
   ) => {
     setShowModelDropdown(false);
     setModelError(null);
@@ -175,6 +177,9 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onError }) => {
   };
 
   const getModelDisplayText = (): string => {
+    if (activeProvider === "superwhisper_scribe") {
+      return t("settings.models.cloud.superwhisper.name");
+    }
     if (activeProvider === "codex_asr") {
       return t("settings.models.cloud.codex.name");
     }
@@ -288,6 +293,9 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onError }) => {
             models={models}
             currentModelId={displayModelId}
             activeProvider={activeProvider}
+            superwhisperConfigured={hasSuperwhisperCredentials(
+              settings?.transcription_api_keys,
+            )}
             elevenLabsConfigured={Boolean(
               settings?.transcription_api_keys?.elevenlabs_scribe?.trim(),
             )}
