@@ -334,6 +334,14 @@ fn initialize_core_logic(app_handle: &AppHandle) {
                     log::error!("Failed to select Codex ASR via tray: {}", err);
                 }
             }
+            "provider_select:openrouter" => {
+                if let Err(err) = commands::transcription::set_transcription_provider(
+                    app.clone(),
+                    settings::TranscriptionProvider::Openrouter,
+                ) {
+                    log::error!("Failed to select OpenRouter: {}", err);
+                }
+            }
             "provider_select:elevenlabs_scribe" => {
                 if let Err(err) = commands::transcription::set_transcription_provider(
                     app.clone(),
@@ -768,6 +776,8 @@ fn specta_builder() -> Builder<tauri::Wry> {
             commands::transcription::import_superwhisper_credentials,
             commands::transcription::change_superwhisper_audio_events,
             commands::transcription::change_superwhisper_model,
+            commands::transcription::fetch_openrouter_models,
+            commands::transcription::change_openrouter_model,
             commands::history::get_history_entries,
             commands::history::toggle_history_entry_saved,
             commands::history::get_audio_file_path,

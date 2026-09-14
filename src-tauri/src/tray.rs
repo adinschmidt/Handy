@@ -61,6 +61,7 @@ struct MenuInputs {
     selected_model: String,
     selected_provider: settings::TranscriptionProvider,
     elevenlabs_configured: bool,
+    openrouter_configured: bool,
     superwhisper_configured: bool,
     /// `(id, name)` of downloaded models, sorted by name.
     downloaded_models: Vec<(String, String)>,
@@ -338,6 +339,10 @@ fn compute_desired(app: &AppHandle, icon_state: TrayIconState) -> TrayDesired {
                 .transcription_api_key(settings::TranscriptionProvider::ElevenlabsScribe)
                 .is_some(),
             superwhisper_configured: settings.superwhisper_credentials().is_ok(),
+            openrouter_configured: settings
+                .transcription_api_key(settings::TranscriptionProvider::Openrouter)
+                .is_some()
+                && !settings.openrouter_model.trim().is_empty(),
             selected_model: settings.selected_model,
             downloaded_models,
             locale: settings.app_language,
@@ -550,6 +555,7 @@ fn build_menu(app: &AppHandle, inputs: &MenuInputs) -> tauri::Result<(Menu<tauri
             settings::TranscriptionProvider::SuperwhisperScribe => {
                 strings.superwhisper_scribe.clone()
             }
+            settings::TranscriptionProvider::Openrouter => "OpenRouter".to_string(),
             settings::TranscriptionProvider::Local => local_label,
             settings::TranscriptionProvider::CodexAsr => "Codex ASR".to_string(),
             settings::TranscriptionProvider::ElevenlabsScribe => "ElevenLabs Scribe".to_string(),
@@ -567,6 +573,12 @@ fn build_menu(app: &AppHandle, inputs: &MenuInputs) -> tauri::Result<(Menu<tauri
             model_submenu.append(&separator()?)?;
         }
         for (provider, id, label, enabled) in [
+            (
+                settings::TranscriptionProvider::Openrouter,
+                "provider_select:openrouter",
+                "OpenRouter",
+                inputs.openrouter_configured,
+            ),
             (
                 settings::TranscriptionProvider::CodexAsr,
                 "provider_select:codex_asr",
@@ -744,6 +756,7 @@ mod tests {
             selected_model: "small".to_string(),
             selected_provider: crate::settings::TranscriptionProvider::Local,
             elevenlabs_configured: false,
+            openrouter_configured: false,
             superwhisper_configured: false,
             downloaded_models: vec![("small".to_string(), "Small".to_string())],
             locale: "en".to_string(),

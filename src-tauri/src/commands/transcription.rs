@@ -47,6 +47,14 @@ pub fn set_transcription_provider(
     provider: TranscriptionProvider,
 ) -> Result<(), String> {
     let mut settings = get_settings(&app);
+    if provider == TranscriptionProvider::Openrouter {
+        if settings.transcription_api_key(provider).is_none() {
+            return Err("OpenRouter API key is required".to_string());
+        }
+        if settings.openrouter_model.trim().is_empty() {
+            return Err("Select an OpenRouter transcription model first".to_string());
+        }
+    }
     // Codex ASR authentication is optional.
     if provider == TranscriptionProvider::ElevenlabsScribe
         && settings.transcription_api_key(provider).is_none()
@@ -67,6 +75,7 @@ pub fn set_transcription_provider(
             }
         }
         TranscriptionProvider::CodexAsr
+        | TranscriptionProvider::Openrouter
         | TranscriptionProvider::ElevenlabsScribe
         | TranscriptionProvider::SuperwhisperScribe => {
             manager
@@ -127,7 +136,20 @@ pub fn change_transcription_api_key(
     settings
         .transcription_api_keys
         .insert(provider_id.to_string(), api_key.trim().to_string());
+    let reset_provider = provider == TranscriptionProvider::Openrouter
+        && api_key.trim().is_empty()
+        && settings.selected_transcription_provider == provider;
+    if reset_provider {
+        settings.selected_transcription_provider = TranscriptionProvider::Local;
+    }
     write_settings(&app, settings);
+    if reset_provider {
+        crate::transcription_provider::prepare_local_model(&app, &get_settings(&app));
+        let _ = app.emit(
+            "transcription-provider-changed",
+            TranscriptionProvider::Local,
+        );
+    }
     crate::tray::update_tray_menu(&app);
     Ok(())
 }
@@ -201,6 +223,33 @@ pub async fn import_superwhisper_credentials(
         let _ = app;
         Err(SuperwhisperImportError::UnsupportedPlatform)
     }
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn fetch_openrouter_models(
+    app: AppHandle,
+) -> Result<Vec<crate::transcription_provider::openrouter::OpenrouterModel>, String> {
+    let settings = get_settings(&app);
+    let key = settings
+        .transcription_api_key(TranscriptionProvider::Openrouter)
+        .ok_or_else(|| "OpenRouter API key is required".to_string())?;
+    crate::transcription_provider::openrouter::fetch_models(key)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_openrouter_model(app: AppHandle, model: String) -> Result<(), String> {
+    if model.trim().is_empty() {
+        return Err("Select an OpenRouter transcription model".to_string());
+    }
+    let mut settings = get_settings(&app);
+    settings.openrouter_model = model.trim().to_string();
+    write_settings(&app, settings);
+    crate::tray::update_tray_menu(&app);
+    Ok(())
 }
 
 #[cfg(test)]

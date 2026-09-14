@@ -46,7 +46,7 @@ interface SettingsStore {
   setTranscriptionProvider: (provider: TranscriptionProvider) => Promise<void>;
   updateCodexAsrBaseUrl: (baseUrl: string) => Promise<void>;
   updateTranscriptionApiKey: (
-    provider: "codex_asr" | "elevenlabs_scribe",
+    provider: "codex_asr" | "elevenlabs_scribe" | "openrouter",
     apiKey: string,
   ) => Promise<void>;
   importSuperwhisperCredentials: () => Promise<

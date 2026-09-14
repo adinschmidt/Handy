@@ -23,7 +23,9 @@ export const ModelSettingsCard: React.FC = () => {
         ? "settings.models.cloud.codex.name"
         : activeProvider === "superwhisper_scribe"
           ? "settings.models.cloud.superwhisper.name"
-          : "settings.models.cloud.elevenlabs.name";
+          : activeProvider === "openrouter"
+            ? "settings.models.cloud.openrouter.name"
+            : "settings.models.cloud.elevenlabs.name";
     return (
       <SettingsGroup title={t(titleKey)}>
         <LanguageSelector descriptionMode="tooltip" grouped={true} />

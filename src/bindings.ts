@@ -900,6 +900,22 @@ async changeSuperwhisperAudioEvents(enabled: boolean | null) : Promise<void> {
 async changeSuperwhisperModel(model: SuperwhisperModel) : Promise<void> {
     await TAURI_INVOKE("change_superwhisper_model", { model });
 },
+async fetchOpenrouterModels() : Promise<Result<OpenrouterModel[], string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("fetch_openrouter_models") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeOpenrouterModel(model: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_openrouter_model", { model }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async getHistoryEntries(cursor: number | null, limit: number | null) : Promise<Result<PaginatedHistory, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("get_history_entries", { cursor, limit }) };
@@ -1075,7 +1091,7 @@ elevenlabs_audio_events?: boolean;
 /**
  * None preserves the proxy default by omitting tag_audio_events.
  */
-superwhisper_audio_events?: boolean | null; superwhisper_model?: SuperwhisperModel; onboarding_completed?: boolean; always_on_microphone?: boolean; selected_microphone?: string | null;
+superwhisper_audio_events?: boolean | null; superwhisper_model?: SuperwhisperModel; openrouter_model?: string; onboarding_completed?: boolean; always_on_microphone?: boolean; selected_microphone?: string | null;
 /**
  * Which input channel to use on the selected microphone device.
  * None means "average all channels" (original behavior).
@@ -1163,6 +1179,7 @@ sha256: string | null } } |
  */
 "Local"
 export type ModelUnloadTimeout = "never" | "immediately" | "min_2" | "min_5" | "min_10" | "min_15" | "hour_1" | "sec_15"
+export type OpenrouterModel = { id: string; name: string }
 export type OrtAcceleratorSetting = "auto" | "cpu" | "cuda" | "directml" | "rocm"
 export type OverlayPosition = "top" | "bottom"
 /**
@@ -1270,7 +1287,7 @@ export type SuperwhisperModel = "scribe" | "s1_voice"
  */
 export type Theme = "system" | "light" | "dark"
 export type TranscribeAcceleratorSetting = "auto" | "cpu" | "gpu"
-export type TranscriptionProvider = "local" | "codex_asr" | "elevenlabs_scribe" | "superwhisper_scribe"
+export type TranscriptionProvider = "local" | "codex_asr" | "elevenlabs_scribe" | "openrouter" | "superwhisper_scribe"
 export type TypingTool = "auto" | "wtype" | "kwtype" | "dotool" | "ydotool" | "xdotool"
 export type VadBackend = "silero" | "earshot"
 export type WindowsMicrophonePermissionStatus = { supported: boolean; overall_access: PermissionAccess; device_access: PermissionAccess; app_access: PermissionAccess; desktop_app_access: PermissionAccess }

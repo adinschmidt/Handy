@@ -281,6 +281,21 @@
           "model": "Model",
           "scribe": "Scribe",
           "s1Voice": "S1-Voice"
+        },
+        "openrouter": {
+          "name": "OpenRouter",
+          "description": "Transcribe recordings with speech-to-text models from OpenRouter.",
+          "shortDescription": "Choose a cloud speech-to-text model",
+          "keyRequired": "Save an API key and select a model in Models settings first.",
+          "storage": "Your API key is stored locally in Handy settings. Clear the field and save to remove it.",
+          "saveKey": "Save API key",
+          "model": "Transcription model",
+          "selectModel": "Select a model",
+          "refresh": "Refresh models",
+          "loading": "Loading models...",
+          "fetchError": "Could not load models. Check your API key and connection, then refresh.",
+          "empty": "No transcription models are available.",
+          "saveError": "Could not save OpenRouter settings. Try again."
         }
       },
       "local": {

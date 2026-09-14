@@ -11,6 +11,7 @@ interface ModelDropdownProps {
   currentModelId: string;
   activeProvider: TranscriptionProvider;
   elevenLabsConfigured: boolean;
+  openrouterConfigured: boolean;
   superwhisperConfigured: boolean;
   onModelSelect: (modelId: string) => void;
   onProviderSelect: (provider: Exclude<TranscriptionProvider, "local">) => void;
@@ -21,6 +22,7 @@ const ModelDropdown: React.FC<ModelDropdownProps> = ({
   currentModelId,
   activeProvider,
   elevenLabsConfigured,
+  openrouterConfigured,
   superwhisperConfigured,
   onModelSelect,
   onProviderSelect,
@@ -147,6 +149,37 @@ const ModelDropdown: React.FC<ModelDropdownProps> = ({
             </div>
           </div>
           {activeProvider === "elevenlabs_scribe" && (
+            <div className="text-xs text-logo-primary">
+              {t("modelSelector.active")}
+            </div>
+          )}
+        </div>
+      </button>
+      <button
+        type="button"
+        onClick={() => onProviderSelect("openrouter")}
+        disabled={!openrouterConfigured}
+        title={
+          openrouterConfigured
+            ? undefined
+            : t("settings.models.cloud.openrouter.keyRequired")
+        }
+        className={`w-full px-3 py-2 text-start hover:bg-mid-gray/10 transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+          activeProvider === "openrouter"
+            ? "bg-logo-primary/10 text-logo-primary"
+            : ""
+        }`}
+      >
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="text-sm text-text/80">
+              {t("settings.models.cloud.openrouter.name")}
+            </div>
+            <div className="text-xs text-text/40 italic pe-4">
+              {t("settings.models.cloud.openrouter.shortDescription")}
+            </div>
+          </div>
+          {activeProvider === "openrouter" && (
             <div className="text-xs text-logo-primary">
               {t("modelSelector.active")}
             </div>

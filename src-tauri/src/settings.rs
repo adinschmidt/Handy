@@ -127,6 +127,7 @@ pub enum TranscriptionProvider {
     Local,
     CodexAsr,
     ElevenlabsScribe,
+    Openrouter,
     SuperwhisperScribe,
 }
 
@@ -136,6 +137,7 @@ impl TranscriptionProvider {
     pub fn api_key_id(self) -> Option<&'static str> {
         match self {
             TranscriptionProvider::Local | TranscriptionProvider::SuperwhisperScribe => None,
+            TranscriptionProvider::Openrouter => Some("openrouter"),
             TranscriptionProvider::CodexAsr => Some("codex_asr"),
             TranscriptionProvider::ElevenlabsScribe => Some("elevenlabs_scribe"),
         }
@@ -453,6 +455,8 @@ pub struct AppSettings {
     pub superwhisper_audio_events: Option<bool>,
     #[serde(default)]
     pub superwhisper_model: SuperwhisperModel,
+    #[serde(default)]
+    pub openrouter_model: String,
     #[serde(default)]
     pub onboarding_completed: bool,
     #[serde(default = "default_always_on_microphone")]
@@ -998,6 +1002,7 @@ pub fn get_default_settings() -> AppSettings {
         elevenlabs_audio_events: default_elevenlabs_audio_events(),
         superwhisper_audio_events: None,
         superwhisper_model: SuperwhisperModel::default(),
+        openrouter_model: String::new(),
         onboarding_completed: false,
         always_on_microphone: false,
         selected_microphone: None,

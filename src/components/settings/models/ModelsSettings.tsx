@@ -1,3 +1,4 @@
+import { OpenrouterSettings } from "./OpenrouterSettings";
 import { SuperwhisperSettings } from "./SuperwhisperSettings";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -483,6 +484,7 @@ export const ModelsSettings: React.FC = () => {
           )}
         </div>
         <SuperwhisperSettings />
+        <OpenrouterSettings />
       </section>
 
       <div className="pt-2">

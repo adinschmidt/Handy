@@ -1,5 +1,6 @@
 mod codex;
 mod elevenlabs;
+pub(crate) mod openrouter;
 mod superwhisper;
 mod superwhisper_s1;
 
@@ -83,7 +84,7 @@ impl ProviderTranscript {
     /// Run text cleanup over the protected text, then restore the spans.
     pub(crate) fn finish(self, settings: &AppSettings) -> String {
         let language_hint = match settings.selected_transcription_provider {
-            TranscriptionProvider::CodexAsr => {
+            TranscriptionProvider::CodexAsr | TranscriptionProvider::Openrouter => {
                 codex::normalize_language(&settings.selected_language)
             }
             TranscriptionProvider::ElevenlabsScribe => {
@@ -144,6 +145,16 @@ async fn transcribe_cloud(
             codex::transcribe(
                 &settings.codex_asr_base_url,
                 settings.transcription_api_key(provider),
+                samples,
+                language.as_deref(),
+            )
+            .await
+        }
+        TranscriptionProvider::Openrouter => {
+            let language = codex::normalize_language(&settings.selected_language);
+            openrouter::transcribe(
+                settings.transcription_api_key(provider).unwrap_or_default(),
+                &settings.openrouter_model,
                 samples,
                 language.as_deref(),
             )

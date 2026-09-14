@@ -180,6 +180,9 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onError }) => {
     if (activeProvider === "superwhisper_scribe") {
       return t("settings.models.cloud.superwhisper.name");
     }
+    if (activeProvider === "openrouter") {
+      return t("settings.models.cloud.openrouter.name");
+    }
     if (activeProvider === "codex_asr") {
       return t("settings.models.cloud.codex.name");
     }
@@ -295,6 +298,10 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onError }) => {
             activeProvider={activeProvider}
             superwhisperConfigured={hasSuperwhisperCredentials(
               settings?.transcription_api_keys,
+            )}
+            openrouterConfigured={Boolean(
+              settings?.transcription_api_keys?.openrouter?.trim() &&
+                settings?.openrouter_model?.trim(),
             )}
             elevenLabsConfigured={Boolean(
               settings?.transcription_api_keys?.elevenlabs_scribe?.trim(),
