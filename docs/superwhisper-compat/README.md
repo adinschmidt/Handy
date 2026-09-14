@@ -4,9 +4,9 @@
 
 Superwhisper Scribe and S1-Voice are implemented as an opt-in cloud provider for a personal licensed account. Models settings accepts the device ID, license ID, and signature as one credential set. The compact selector, general settings summary, and tray support the provider. Clearing credentials switches an active Superwhisper provider back to Local.
 
-A September 6, 2026 disposable live probe confirmed that the proxy accepts Handy's existing 16 kHz mono PCM16 WAV encoding and returns the expected phrase. No Opus encoder is required. See the dated evidence in [Research findings](RESEARCH_FINDINGS.md).
+A September 6, 2026 disposable live probe confirmed that the proxy accepts Handy's existing 16 kHz mono PCM16 WAV encoding and returns the expected phrase. See the dated evidence in [Research findings](RESEARCH_FINDINGS.md).
 
-`src-tauri/src/settings/superwhisper.rs` validates and atomically updates the three secret-map entries. `src-tauri/src/transcription_provider/superwhisper.rs` implements the multipart request, bounded vocabulary hints, response parsing, and audio-event protection. Its ignored `live_wav_compatibility_probe` test accepts `SW_PROBE_WAV`, `SW_PROBE_EXPECTED`, and the three `SW_X_*` environment variables. It re-encodes 16 kHz mono PCM16 input with Handy's WAV encoder and sends one request. Run it only with explicit authorization and disposable audio.
+`src-tauri/src/settings/superwhisper.rs` validates and atomically updates the three secret-map entries. `src-tauri/src/transcription_provider/superwhisper.rs` implements the multipart request, bounded vocabulary hints, response parsing, and audio-event protection. Its ignored `live_opus_compatibility_probe` test accepts `SW_PROBE_WAV`, `SW_PROBE_EXPECTED`, and the three `SW_X_*` environment variables. It encodes disposable 16 kHz mono PCM16 input as Ogg Opus and sends one request. Run it only with explicit authorization and disposable audio.
 
 On macOS, **Import from Superwhisper** reads the local Superwhisper request cache and saves the newest valid credential set. It scans only known Superwhisper endpoints and never launches Superwhisper or sends a request. If no usable request is cached, transcribe something in Superwhisper and retry. Cached credentials may have expired; importing does not verify account access. Linux retains manual credential entry.
 
@@ -30,7 +30,7 @@ The model selector beneath audio-event tagging defaults to Scribe for existing s
 
 `src-tauri/src/transcription_provider/superwhisper_s1.rs` discovers the default region with `GET /v2/inference/regions`, then requests `POST /v2/inference/key?region=<id>` with an empty JSON object using the three device/license headers. Each transcription obtains a fresh token without persisting it. Only HTTPS hosts beneath `superwhisper.com` can receive that token.
 
-The regional `POST /generate` request sends multipart WAV in `audio`, `language`, vocabulary hints as a comma-separated `asr_prompt`, and `enable_word_timestamps=true`. It sends `enable_audio_vocab=false` because Handy does not build Superwhisper vocabulary files. It reads the top-level `text` field. Audio-event tagging applies only to Scribe, so its control is disabled for S1-Voice without discarding the saved choice.
+The regional `POST /generate` request sends multipart Ogg Opus in `audio`, `language`, vocabulary hints as a comma-separated `asr_prompt`, and `enable_word_timestamps=true`. It sends `enable_audio_vocab=false` because Handy does not build Superwhisper vocabulary files. It reads the top-level `text` field. Audio-event tagging applies only to Scribe, so its control is disabled for S1-Voice without discarding the saved choice.
 
 September 13, 2026 cache inspection confirmed that the key response contains `key`, and region discovery returns `regions` entries with `id` and `host`, plus a `default` region ID. The cached key request uses `X-ID`, `X-License`, and `X-Signature`, correcting the earlier inferred license-bearer authentication in the historical specification. Region discovery supplied AWS regional hosts. The current S1 request uses `/generate`, distinct from the older `/v1/c/run` capture. Live probes through Handy confirmed 16 kHz mono PCM16 WAV acceptance and exact transcription of disposable speech with both explicit English and automatic language detection.
 
@@ -62,7 +62,7 @@ The provider uses the existing recording and output pipeline in `src-tauri/src/t
 
 The July replay verified `POST https://api.superwhisper.com/elevenlabs/v1/transcribe` with a multipart audio file and the `X-ID`, `X-License`, `X-Signature`, and `X-Platform: macos` headers. The observed credential set worked across different bodies and paths. Signature derivation remains unknown. The September 6 probes confirmed validity of the tested credential set.
 
-The July capture used Ogg Opus. The September 6 live probe confirmed WAV acceptance, so the provider uses Handy's existing encoder.
+All cloud transcription uploads use mono Ogg Opus at a target bitrate of 32 kbps. The bundled encoder runs off the async executor and preserves the input duration through Opus pre-skip and end trimming. History audio remains WAV. Scribe, S1-Voice, OpenRouter, and Codex ASR share the upload encoder.
 
 Keep license activation, sync, background polling, and account management out of scope.
 
@@ -70,7 +70,7 @@ Keep license activation, sync, background polling, and account management out of
 
 - `src-tauri/src/settings.rs`: provider enum, defaults, secret settings, migrations.
 - `src-tauri/src/transcription_provider/mod.rs`: dispatch, shared HTTP client, cancellation-compatible requests, transcript cleanup.
-- `src-tauri/src/transcription_provider/elevenlabs.rs`: multipart WAV transport and audio-event preservation.
+- `src-tauri/src/transcription_provider/elevenlabs.rs`: multipart Ogg Opus transport and audio-event preservation.
 - `src-tauri/src/commands/transcription.rs`: provider configuration commands.
 - `src/components/settings/models/ModelsSettings.tsx`, `src/stores/settingsStore.ts`, and `src/hooks/useSettings.ts`: cloud-provider settings.
 - `src-tauri/src/tray.rs`: provider selection must participate in `MenuInputs` so tray changes invalidate the cached menu.

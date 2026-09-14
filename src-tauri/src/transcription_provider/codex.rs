@@ -1,7 +1,6 @@
-use crate::audio_toolkit::encode_wav_bytes;
 use crate::transcription_provider::ProviderTranscript;
 use anyhow::{anyhow, Context, Result};
-use reqwest::multipart::{Form, Part};
+use reqwest::multipart::Form;
 use reqwest::StatusCode;
 use serde::Deserialize;
 
@@ -30,10 +29,7 @@ pub async fn transcribe(
     samples: &[f32],
     language: Option<&str>,
 ) -> Result<ProviderTranscript> {
-    let wav = encode_wav_bytes(samples).context("Failed to encode recording as WAV")?;
-    let file = Part::bytes(wav)
-        .file_name("recording.wav")
-        .mime_str("audio/wav")?;
+    let file = super::opus_audio_part(samples).await?;
     let mut form = Form::new()
         .part("file", file)
         .text("model", "whisper-1")
@@ -114,9 +110,10 @@ mod tests {
         assert!(!request.headers.contains_key("authorization"));
         let body = String::from_utf8_lossy(&request.body);
         assert!(body.contains("name=\"file\""));
-        assert!(body.contains("filename=\"recording.wav\""));
-        assert!(body.contains("RIFF"));
-        assert!(body.contains("WAVE"));
+        assert!(body.contains("filename=\"recording.ogg\""));
+        assert!(body.contains("OggS"));
+        assert!(body.contains("OpusHead"));
+        assert!(body.contains("audio/ogg"));
         assert!(body.contains("name=\"model\""));
         assert!(body.contains("whisper-1"));
         assert!(body.contains("name=\"response_format\""));

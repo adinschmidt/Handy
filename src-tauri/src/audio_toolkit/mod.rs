@@ -1,6 +1,7 @@
 pub mod audio;
 pub mod constants;
 pub mod lang_id;
+mod opus;
 pub mod text;
 pub mod utils;
 pub mod vad;
@@ -11,6 +12,7 @@ pub use audio::{
     CpalDeviceInfo, VadPolicy,
 };
 pub use lang_id::detect_output_language;
+pub use opus::encode_ogg_opus;
 pub use text::{
     apply_custom_words, normalize_transcription_output, remove_filler_words, OutputLanguageEvidence,
 };

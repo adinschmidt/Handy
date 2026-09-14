@@ -1,7 +1,6 @@
 use super::ProviderTranscript;
-use crate::audio_toolkit::encode_wav_bytes;
 use anyhow::{anyhow, Context, Result};
-use reqwest::multipart::{Form, Part};
+use reqwest::multipart::Form;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
@@ -91,10 +90,7 @@ async fn transcribe_at(
     if model.trim().is_empty() {
         return Err(anyhow!("Select an OpenRouter transcription model first"));
     }
-    let wav = encode_wav_bytes(samples).context("Failed to encode recording as WAV")?;
-    let file = Part::bytes(wav)
-        .file_name("recording.wav")
-        .mime_str("audio/wav")?;
+    let file = super::opus_audio_part(samples).await?;
     let mut form = Form::new()
         .part("file", file)
         .text("model", model.to_string());
@@ -141,7 +137,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn uploads_wav_with_selected_model_and_language() {
+    async fn uploads_opus_with_selected_model_and_language() {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/audio/transcriptions"))
@@ -166,9 +162,10 @@ mod tests {
         let body = String::from_utf8_lossy(&requests[0].body);
         for expected in [
             "name=\"file\"",
-            "recording.wav",
-            "RIFF",
-            "WAVE",
+            "recording.ogg",
+            "OggS",
+            "OpusHead",
+            "audio/ogg",
             "name=\"model\"",
             "vendor/stt",
             "name=\"language\"",

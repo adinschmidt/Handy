@@ -1009,3 +1009,15 @@ All three proxy requests accept `model`, `messages` containing role/content obje
 Live tests through Handy's post-processing function substituted the disposable transcript into the selected prompt and requested an 8,192-token output budget. Each model returned exactly:
 
 > The purple bicycle is beside the library.
+
+
+## September 14, 2026: Ogg Opus upload verification
+
+A disposable live request through Handy's Scribe provider accepted Ogg Opus produced by the in-process encoder at a target 32 kbps, with filename `recording.ogg` and MIME type `audio/ogg`. The transcript matched the generated input phrase. The request completed in approximately 0.94 seconds.
+
+Independent FFmpeg decoding preserved all 89,358 input samples at 16 kHz, including Opus delay compensation and end trimming. A one-minute sample made by repeating generated speech encoded to 234,281 bytes, compared with 1,920,044 bytes for PCM16 WAV. Encoding took approximately 0.52 seconds in the local debug build. These measurements establish compatibility and compression for disposable speech, not accuracy parity across noisy recordings or other providers.
+
+
+Disposable Ogg Opus requests to S1-Voice's regional `/generate` endpoint and OpenRouter's `/audio/transcriptions` endpoint using `fish-audio/transcribe-1` both returned HTTP 200 and the expected phrase, "The purple bicycle is parked beside the library." Both uploads used the same in-process encoder as Scribe.
+
+OpenRouter's [transcription documentation](https://openrouter.ai/docs/guides/overview/multimodal/stt) recommends Opus for long recordings, while noting that accepted formats vary by provider. The [Codex ASR maintainer's format tests](https://github.com/Wangnov/codex-asr#audio-formats) list Ogg Opus with `audio/ogg` among successful uploads.

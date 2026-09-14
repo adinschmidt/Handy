@@ -27,6 +27,20 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(310);
 
 static HTTP_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 
+/// Encode cloud uploads without blocking the async executor.
+async fn opus_audio_part(samples: &[f32]) -> Result<reqwest::multipart::Part> {
+    let samples = samples.to_vec();
+    let audio = tauri::async_runtime::spawn_blocking(move || {
+        crate::audio_toolkit::encode_ogg_opus(&samples)
+    })
+    .await
+    .context("Audio encoding task failed")?
+    .context("Failed to encode recording as Ogg Opus")?;
+    Ok(reqwest::multipart::Part::bytes(audio)
+        .file_name("recording.ogg")
+        .mime_str("audio/ogg")?)
+}
+
 /// One client shared by every provider and every dictation. The client owns the
 /// connection pool and TLS session cache, so building a fresh one per request
 /// pays a full handshake on each dictation.

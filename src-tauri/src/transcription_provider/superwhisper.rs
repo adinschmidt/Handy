@@ -1,7 +1,6 @@
-use crate::audio_toolkit::encode_wav_bytes;
 use crate::settings::SuperwhisperCredentials;
-use anyhow::{anyhow, Context, Result};
-use reqwest::multipart::{Form, Part};
+use anyhow::{anyhow, Result};
+use reqwest::multipart::Form;
 use serde::Deserialize;
 
 const API_BASE_URL: &str = "https://api.superwhisper.com";
@@ -62,13 +61,7 @@ async fn transcribe_at(
         credentials.x_signature,
     )
     .map_err(|error| anyhow!(error))?;
-    let wav = encode_wav_bytes(samples).context("Failed to encode recording as WAV")?;
-    let mut form = Form::new().part(
-        "file",
-        Part::bytes(wav)
-            .file_name("recording.wav")
-            .mime_str("audio/wav")?,
-    );
+    let mut form = Form::new().part("file", super::opus_audio_part(samples).await?);
     if let Some(enabled) = tag_audio_events {
         form = form.text("tag_audio_events", enabled.to_string());
     }
@@ -156,7 +149,7 @@ mod tests {
     /// Sends one request with an explicitly supplied disposable WAV and credentials.
     #[tokio::test]
     #[ignore = "requires explicit authorization, SW_PROBE_WAV, and SW_X_* credentials"]
-    async fn live_wav_compatibility_probe() {
+    async fn live_opus_compatibility_probe() {
         let x_id = std::env::var("SW_X_ID").expect("SW_X_ID is required");
         let x_license = std::env::var("SW_X_LICENSE").expect("SW_X_LICENSE is required");
         let x_signature = std::env::var("SW_X_SIGNATURE").expect("SW_X_SIGNATURE is required");
@@ -205,7 +198,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn sends_captured_protocol_with_wav_and_preserves_events() {
+    async fn sends_captured_protocol_with_opus_and_preserves_events() {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/elevenlabs/v1/transcribe"))
@@ -244,9 +237,9 @@ mod tests {
             assert_eq!(request.headers.get(key).unwrap().to_str().unwrap(), value);
         }
         let body = String::from_utf8_lossy(&request.body);
-        assert!(body.contains("name=\"file\"; filename=\"recording.wav\""));
-        assert!(body.contains("audio/wav"));
-        assert!(body.contains("RIFF"));
+        assert!(body.contains("name=\"file\"; filename=\"recording.ogg\""));
+        assert!(body.contains("audio/ogg"));
+        assert!(body.contains("OpusHead"));
         assert!(body.contains("name=\"language_code\"\r\n\r\nen\r\n"));
         assert_eq!(body.matches("name=\"keyterms[]\"").count(), 2);
         assert!(body.contains("\r\n\r\none\r\n"));

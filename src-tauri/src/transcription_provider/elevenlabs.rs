@@ -1,7 +1,6 @@
-use crate::audio_toolkit::encode_wav_bytes;
 use crate::transcription_provider::ProviderTranscript;
 use anyhow::{anyhow, Context, Result};
-use reqwest::multipart::{Form, Part};
+use reqwest::multipart::Form;
 use serde::Deserialize;
 
 const API_BASE_URL: &str = "https://api.elevenlabs.io";
@@ -152,10 +151,7 @@ async fn transcribe_at(
         ));
     }
 
-    let wav = encode_wav_bytes(samples).context("Failed to encode recording as WAV")?;
-    let file = Part::bytes(wav)
-        .file_name("recording.wav")
-        .mime_str("audio/wav")?;
+    let file = super::opus_audio_part(samples).await?;
     let mut form = Form::new()
         .part("file", file)
         .text("model_id", MODEL_ID)
@@ -311,7 +307,9 @@ mod tests {
             "test-secret-key"
         );
         let body = String::from_utf8_lossy(&request.body);
-        assert!(body.contains("RIFF"));
+        assert!(body.contains("OpusHead"));
+        assert!(body.contains("recording.ogg"));
+        assert!(body.contains("audio/ogg"));
         assert!(body.contains("name=\"model_id\""));
         assert!(body.contains("scribe_v2"));
         assert!(body.contains("name=\"tag_audio_events\""));

@@ -1,6 +1,5 @@
-use crate::audio_toolkit::encode_wav_bytes;
 use crate::settings::SuperwhisperCredentials;
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Result};
 use reqwest::multipart::{Form, Part};
 use serde::Deserialize;
 
@@ -119,16 +118,16 @@ pub async fn transcribe(
     language: Option<&str>,
     keyterms: &[String],
 ) -> Result<super::ProviderTranscript> {
-    let wav = encode_wav_bytes(samples).context("Failed to encode recording as WAV")?;
+    let audio = super::opus_audio_part(samples).await?;
     // Request a fresh token for each recording; never persist temporary tokens.
     let (host, key) = bootstrap("https://api.superwhisper.com", credentials).await?;
-    run_at(host, key, wav, language, keyterms).await
+    run_at(host, key, audio, language, keyterms).await
 }
 
 async fn run_at(
     host: reqwest::Url,
     key: InferenceKey,
-    wav: Vec<u8>,
+    audio: Part,
     language: Option<&str>,
     keyterms: &[String],
 ) -> Result<super::ProviderTranscript> {
@@ -140,12 +139,7 @@ async fn run_at(
         .collect::<Vec<_>>()
         .join(", ");
     let form = Form::new()
-        .part(
-            "audio",
-            Part::bytes(wav)
-                .file_name("recording.wav")
-                .mime_str("audio/wav")?,
-        )
+        .part("audio", audio)
         .text("language", language.unwrap_or("auto").to_string())
         .text("asr_prompt", prompt)
         .text("enable_word_timestamps", "true")
@@ -210,11 +204,11 @@ mod tests {
             .expect(1)
             .mount(&server)
             .await;
-        let wav = encode_wav_bytes(&[0.0; 160]).unwrap();
+        let audio = super::super::opus_audio_part(&[0.0; 160]).await.unwrap();
         let transcript = run_at(
             server.uri().parse().unwrap(),
             key,
-            wav.clone(),
+            audio,
             Some("en"),
             &[" Handy ".into()],
         )
@@ -224,9 +218,10 @@ mod tests {
         let requests = server.received_requests().await.unwrap();
         let run = requests.last().unwrap();
         assert!(!run.headers.contains_key("X-License"));
-        assert!(run.body.windows(wav.len()).any(|bytes| bytes == wav));
         let body = String::from_utf8_lossy(&run.body);
-        assert!(body.contains("name=\"audio\"; filename=\"recording.wav\""));
+        assert!(body.contains("OpusHead"));
+        assert!(body.contains("audio/ogg"));
+        assert!(body.contains("name=\"audio\"; filename=\"recording.ogg\""));
         assert!(body.contains("name=\"asr_prompt\"\r\n\r\nHandy"));
         assert!(body.contains("name=\"language\"\r\n\r\nen"));
         assert!(body.contains("name=\"enable_audio_vocab\"\r\n\r\nfalse"));
@@ -247,7 +242,7 @@ mod tests {
             InferenceKey {
                 key: "secret-token".into(),
             },
-            vec![],
+            Part::bytes(Vec::new()),
             None,
             &[],
         )
