@@ -8,7 +8,7 @@
     "quit": "Quit",
     "cancel": "Cancel",
     "secureInputWarning": "⚠ Shortcuts blocked by Secure Input",
-    "superwhisperScribe": "Superwhisper proxy (Scribe)"
+    "superwhisperScribe": "Superwhisper proxy"
   },
   "sidebar": {
     "general": "General",
@@ -256,7 +256,7 @@
         },
         "apiKeyOptional": "API key (optional)",
         "superwhisper": {
-          "name": "Superwhisper proxy (Scribe)",
+          "name": "Superwhisper proxy",
           "description": "Personal compatibility for your own authorized Superwhisper installation. Audio is sent to Superwhisper for transcription.",
           "shortDescription": "Personal Superwhisper compatibility",
           "storageWarning": "Credentials are stored in Handy's local settings file, not an OS keychain.",
@@ -277,7 +277,10 @@
           "audioEventsDefault": "Default",
           "audioEventsOn": "On",
           "audioEventsOff": "Off",
-          "audioEventsDescription": "Include or suppress sounds such as laughter and applause. Default leaves the choice to Superwhisper."
+          "audioEventsDescription": "Scribe only. Include or suppress sounds such as laughter and applause. Default leaves the choice to Superwhisper.",
+          "model": "Model",
+          "scribe": "Scribe",
+          "s1Voice": "S1-Voice"
         }
       },
       "local": {
@@ -485,6 +488,13 @@
           "placeholderWithOptions": "Search or select a model",
           "placeholderNoOptions": "Type a model name",
           "refreshModels": "Refresh models"
+        },
+        "superwhisper": {
+          "connected": "Using the Superwhisper credentials saved in Models. No additional API key is needed.",
+          "missing": "Save or import your Superwhisper credentials in Models to use these language models.",
+          "gemini": "Gemini 3.7 Flash",
+          "luna": "GPT-5.6 Luna",
+          "sonnet": "Sonnet 5"
         }
       },
       "prompts": {

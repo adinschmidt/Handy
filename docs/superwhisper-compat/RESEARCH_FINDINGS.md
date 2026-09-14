@@ -976,3 +976,36 @@ A second disposable live test on the same date passed through Handy's cloud prov
 ## September 6, 2026: audio-event output
 
 Manual dictation through the Handy compatibility provider returned bracketed clap, sigh, and throat-clearing descriptions. The setting was On when inspected afterward. This confirms that audio-event output reaches Handy. A controlled On/Off comparison is still needed to establish whether the proxy honors the explicit toggle or uses its own default.
+
+## September 13, 2026: current S1-Voice protocol
+
+Current cache inspection and live probes through Handy establish the following flow:
+
+1. `GET https://api.superwhisper.com/v2/inference/regions` returns `regions` entries with `id` and `host`, and a `default` ID.
+2. `POST https://api.superwhisper.com/v2/inference/key?region=<id>` sends `{}` as JSON with `X-ID`, `X-License`, `X-Signature`, and `X-Platform: macos`. The response contains `key`. This corrects the earlier inferred GET method and license-bearer authentication.
+3. `POST <region-host>/generate` uses that key as a bearer token and multipart fields `audio`, `language`, `asr_prompt`, `enable_word_timestamps`, and `enable_audio_vocab`. The current regional host is separate from the older Cerebrium `/v1/c/run` route.
+4. The JSON response contains top-level `text`. The regional public OpenAPI document at `https://us.aws.superwhisper.com/openapi.json` also lists `/generate`.
+
+Two live requests through Handy accepted its existing 16 kHz mono PCM16 WAV encoding as `audio`, filename `recording.wav`, MIME type `audio/wav`. One used `language=en`; the other used `language=auto`. Both used an empty `asr_prompt`, `enable_word_timestamps=true`, and `enable_audio_vocab=false`. Both returned the generated phrase exactly:
+
+> The purple bicycle is parked beside the library. This is a disposable speech recognition test.
+
+The cached app request additionally supplied a `vocabulary` file named `vocab.bin` with `enable_audio_vocab=true`. Handy does not produce that file and instead sends plain vocabulary hints through `asr_prompt`.
+
+## September 13, 2026: language-model cleanup verification
+
+The authenticated cloud catalog listed `gemini-3.7-flash`, `gpt-5.6-luna`, and `claude-sonnet-5` as non-deprecated Pro models. Each advertised `contextWindow=1000000` and `maxTokens=8192`. These are catalog values; enforcement thresholds were not measured.
+
+Disposable cleanup requests confirmed these contracts:
+
+| Model | Endpoint | Request output budget field | Response format | Successful finish |
+|---|---|---|---|---|
+| `gemini-3.7-flash` | `/gemini/v1/messages` | `max_tokens` | SSE, `candidates[].content.parts[].text` | `finishReason=STOP` |
+| `gpt-5.6-luna` | `/v1/chat/completions` | `max_completion_tokens` | SSE, `choices[].delta.content` | `finish_reason=stop`, then `[DONE]` |
+| `claude-sonnet-5` | `/anthropic/v1/messages` | `max_tokens` | SSE, `content_block_delta` with `text_delta` | `stop_reason=end_turn`, then `message_stop` |
+
+All three proxy requests accept `model`, `messages` containing role/content objects, and `stream`. The Gemini proxy uses this messages envelope rather than the native Google contents envelope. OpenAI and Anthropic requests specifying `stream=false` still returned SSE. Authentication uses the same device/license headers and compatibility User-Agent as transcription.
+
+Live tests through Handy's post-processing function substituted the disposable transcript into the selected prompt and requested an 8,192-token output budget. Each model returned exactly:
+
+> The purple bicycle is beside the library.

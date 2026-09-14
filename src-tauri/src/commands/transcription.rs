@@ -161,6 +161,14 @@ pub fn change_superwhisper_audio_events(app: AppHandle, enabled: Option<bool>) {
     write_settings(&app, settings);
 }
 
+#[tauri::command]
+#[specta::specta]
+pub fn change_superwhisper_model(app: AppHandle, model: crate::settings::SuperwhisperModel) {
+    let mut settings = get_settings(&app);
+    settings.superwhisper_model = model;
+    write_settings(&app, settings);
+}
+
 /// Import only when requested, without launching Superwhisper or sending traffic.
 #[tauri::command]
 #[specta::specta]

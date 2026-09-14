@@ -1,3 +1,8 @@
+import { useTranslation } from "react-i18next";
+import {
+  hasSuperwhisperCredentials,
+  superwhisperLanguageModels,
+} from "@/lib/superwhisper";
 import { useCallback, useMemo, useState } from "react";
 import { useSettings } from "../../../hooks/useSettings";
 import { commands, type PostProcessProvider } from "@/bindings";
@@ -10,6 +15,8 @@ type PostProcessProviderState = {
   selectedProvider: PostProcessProvider | undefined;
   isCustomProvider: boolean;
   isAppleProvider: boolean;
+  isSuperwhisperProvider: boolean;
+  superwhisperConfigured: boolean;
   appleIntelligenceUnavailable: boolean;
   baseUrl: string;
   handleBaseUrlChange: (value: string) => void;
@@ -31,6 +38,7 @@ type PostProcessProviderState = {
 const APPLE_PROVIDER_ID = "apple_intelligence";
 
 export const usePostProcessProviderState = (): PostProcessProviderState => {
+  const { t } = useTranslation();
   const {
     settings,
     isUpdating,
@@ -56,6 +64,10 @@ export const usePostProcessProviderState = (): PostProcessProviderState => {
     );
   }, [providers, selectedProviderId]);
 
+  const isSuperwhisperProvider = selectedProvider?.id === "superwhisper";
+  const superwhisperConfigured = hasSuperwhisperCredentials(
+    settings?.transcription_api_keys,
+  );
   const isAppleProvider = selectedProvider?.id === APPLE_PROVIDER_ID;
   const [appleIntelligenceUnavailable, setAppleIntelligenceUnavailable] =
     useState(false);
@@ -102,13 +114,20 @@ export const usePostProcessProviderState = (): PostProcessProviderState => {
         const hasBaseUrl = (provider?.base_url ?? "").trim() !== "";
         const hasApiKey = apiKey.trim() !== "";
 
-        if (provider?.id === "custom" ? hasBaseUrl : hasApiKey) {
+        if (
+          providerId === "superwhisper"
+            ? superwhisperConfigured
+            : provider?.id === "custom"
+              ? hasBaseUrl
+              : hasApiKey
+        ) {
           void fetchPostProcessModels(providerId);
         }
       }
     },
     [
       selectedProviderId,
+      superwhisperConfigured,
       setPostProcessProvider,
       fetchPostProcessModels,
       providers,
@@ -171,6 +190,14 @@ export const usePostProcessProviderState = (): PostProcessProviderState => {
   const availableModelsRaw = postProcessModelOptions[selectedProviderId] || [];
 
   const modelOptions = useMemo<ModelOption[]>(() => {
+    if (isSuperwhisperProvider) {
+      const available = postProcessModelOptions.superwhisper;
+      return superwhisperLanguageModels
+        .filter(
+          ({ value }) => available === undefined || available.includes(value),
+        )
+        .map(({ value, labelKey }) => ({ value, label: t(labelKey) }));
+    }
     const seen = new Set<string>();
     const options: ModelOption[] = [];
 
@@ -190,7 +217,13 @@ export const usePostProcessProviderState = (): PostProcessProviderState => {
     upsert(model);
 
     return options;
-  }, [availableModelsRaw, model]);
+  }, [
+    availableModelsRaw,
+    model,
+    isSuperwhisperProvider,
+    postProcessModelOptions.superwhisper,
+    t,
+  ]);
 
   const isBaseUrlUpdating = isUpdating(
     `post_process_base_url:${selectedProviderId}`,
@@ -215,6 +248,8 @@ export const usePostProcessProviderState = (): PostProcessProviderState => {
     selectedProvider,
     isCustomProvider,
     isAppleProvider,
+    isSuperwhisperProvider,
+    superwhisperConfigured,
     appleIntelligenceUnavailable,
     baseUrl,
     handleBaseUrlChange,

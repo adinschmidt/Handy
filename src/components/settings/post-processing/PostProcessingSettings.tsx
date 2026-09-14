@@ -12,6 +12,7 @@ import {
 } from "@/components/ui";
 import { Button } from "../../ui/Button";
 import { ResetButton } from "../../ui/ResetButton";
+import { Select } from "../../ui/Select";
 import { Input } from "../../ui/Input";
 
 import { ProviderSelect } from "../PostProcessingSettingsApi/ProviderSelect";
@@ -44,7 +45,15 @@ const PostProcessingSettingsApiComponent: React.FC = () => {
         </div>
       </SettingContainer>
 
-      {state.isAppleProvider ? (
+      {state.isSuperwhisperProvider ? (
+        <p role="status" className="px-4 py-3 text-sm text-text/70">
+          {t(
+            state.superwhisperConfigured
+              ? "settings.postProcessing.api.superwhisper.connected"
+              : "settings.postProcessing.api.superwhisper.missing",
+          )}
+        </p>
+      ) : state.isAppleProvider ? (
         state.appleIntelligenceUnavailable ? (
           <Alert variant="error" contained>
             {t("settings.postProcessing.api.appleIntelligence.unavailable")}
@@ -109,26 +118,50 @@ const PostProcessingSettingsApiComponent: React.FC = () => {
           grouped={true}
         >
           <div className="flex items-center gap-2">
-            <ModelSelect
-              value={state.model}
-              options={state.modelOptions}
-              disabled={state.isModelUpdating}
-              isLoading={state.isFetchingModels}
-              placeholder={
-                state.modelOptions.length > 0
-                  ? t(
-                      "settings.postProcessing.api.model.placeholderWithOptions",
-                    )
-                  : t("settings.postProcessing.api.model.placeholderNoOptions")
-              }
-              onSelect={state.handleModelSelect}
-              onCreate={state.handleModelCreate}
-              onBlur={() => {}}
-              className="flex-1 min-w-[380px]"
-            />
+            {state.isSuperwhisperProvider ? (
+              <Select
+                value={state.model}
+                isClearable={false}
+                options={state.modelOptions}
+                disabled={
+                  state.isModelUpdating || !state.superwhisperConfigured
+                }
+                isLoading={state.isFetchingModels}
+                onChange={(value) => {
+                  if (value) state.handleModelSelect(value);
+                }}
+                placeholder={t(
+                  "settings.postProcessing.api.model.placeholderWithOptions",
+                )}
+                className="flex-1 min-w-[380px] text-sm"
+              />
+            ) : (
+              <ModelSelect
+                value={state.model}
+                options={state.modelOptions}
+                disabled={state.isModelUpdating}
+                isLoading={state.isFetchingModels}
+                placeholder={
+                  state.modelOptions.length > 0
+                    ? t(
+                        "settings.postProcessing.api.model.placeholderWithOptions",
+                      )
+                    : t(
+                        "settings.postProcessing.api.model.placeholderNoOptions",
+                      )
+                }
+                onSelect={state.handleModelSelect}
+                onCreate={state.handleModelCreate}
+                onBlur={() => {}}
+                className="flex-1 min-w-[380px]"
+              />
+            )}
             <ResetButton
               onClick={state.handleRefreshModels}
-              disabled={state.isFetchingModels}
+              disabled={
+                state.isFetchingModels ||
+                (state.isSuperwhisperProvider && !state.superwhisperConfigured)
+              }
               ariaLabel={t("settings.postProcessing.api.model.refreshModels")}
               className="flex h-10 w-10 items-center justify-center"
             >

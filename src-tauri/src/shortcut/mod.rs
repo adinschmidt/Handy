@@ -1214,6 +1214,10 @@ pub async fn fetch_post_process_models(
         }
     }
 
+    if provider.id == "superwhisper" {
+        return crate::superwhisper_llm::fetch_models(settings.superwhisper_credentials()?).await;
+    }
+
     // Get API key
     let api_key = settings
         .post_process_api_keys

@@ -1,6 +1,7 @@
 mod codex;
 mod elevenlabs;
 mod superwhisper;
+mod superwhisper_s1;
 
 use crate::audio_toolkit::OutputLanguageEvidence;
 use crate::managers::model::ModelManager;
@@ -164,14 +165,27 @@ async fn transcribe_cloud(
                 .superwhisper_credentials()
                 .map_err(|error| anyhow!(error))?;
             let language = superwhisper::normalize_language(&settings.selected_language);
-            superwhisper::transcribe(
-                credentials,
-                samples,
-                language.as_deref(),
-                &settings.custom_words,
-                settings.superwhisper_audio_events,
-            )
-            .await
+            match settings.superwhisper_model {
+                crate::settings::SuperwhisperModel::Scribe => {
+                    superwhisper::transcribe(
+                        credentials,
+                        samples,
+                        language.as_deref(),
+                        &settings.custom_words,
+                        settings.superwhisper_audio_events,
+                    )
+                    .await
+                }
+                crate::settings::SuperwhisperModel::S1Voice => {
+                    superwhisper_s1::transcribe(
+                        credentials,
+                        samples,
+                        language.as_deref(),
+                        &settings.custom_words,
+                    )
+                    .await
+                }
+            }
         }
         TranscriptionProvider::Local => Err(anyhow!("Local is not a cloud transcription provider")),
     }

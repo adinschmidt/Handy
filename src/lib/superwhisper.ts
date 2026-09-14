@@ -26,3 +26,18 @@ export function hasSuperwhisperCredentials(
     /^[0-9a-f]{64}$/.test(keys?.superwhisper_x_signature?.trim() ?? "")
   );
 }
+
+export const superwhisperLanguageModels = [
+  {
+    value: "gemini-3.7-flash",
+    labelKey: "settings.postProcessing.api.superwhisper.gemini",
+  },
+  {
+    value: "gpt-5.6-luna",
+    labelKey: "settings.postProcessing.api.superwhisper.luna",
+  },
+  {
+    value: "claude-sonnet-5",
+    labelKey: "settings.postProcessing.api.superwhisper.sonnet",
+  },
+] as const;

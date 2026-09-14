@@ -21,6 +21,7 @@ mod settings;
 mod shortcut;
 mod signal_handle;
 mod superwhisper_import;
+mod superwhisper_llm;
 mod transcription_coordinator;
 mod transcription_provider;
 mod tray;
@@ -766,6 +767,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
             commands::transcription::change_superwhisper_credentials,
             commands::transcription::import_superwhisper_credentials,
             commands::transcription::change_superwhisper_audio_events,
+            commands::transcription::change_superwhisper_model,
             commands::history::get_history_entries,
             commands::history::toggle_history_entry_saved,
             commands::history::get_audio_file_path,

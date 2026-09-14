@@ -97,6 +97,8 @@ const DEFAULT_AUDIO_DEVICE: AudioDevice = {
 const settingUpdaters: {
   [K in keyof Settings]?: (value: Settings[K]) => Promise<unknown>;
 } = {
+  superwhisper_model: (value) =>
+    commands.changeSuperwhisperModel(value ?? "scribe"),
   superwhisper_audio_events: (value) =>
     commands.changeSuperwhisperAudioEvents(value ?? null),
   always_on_microphone: (value) =>

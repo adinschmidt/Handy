@@ -6,8 +6,7 @@ use serde::Deserialize;
 
 const API_BASE_URL: &str = "https://api.superwhisper.com";
 const TRANSCRIPT_PATH: &str = "elevenlabs/v1/transcribe";
-const USER_AGENT: &str =
-    "superwhisper/2.16.6 (com.superduper.superwhisper; build:2.16.6; macOS 26.5.2) Alamofire/5.8.0";
+pub(super) use crate::settings::SUPERWHISPER_USER_AGENT as USER_AGENT;
 const ACCEPT_LANGUAGE: &str = "en-CA,en-US;q=0.9,en;q=0.8";
 
 pub(super) fn normalize_language(language: &str) -> Option<String> {

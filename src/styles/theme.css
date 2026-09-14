@@ -1,6 +1,7 @@
 /* Handy Colors */
 
 :root {
+  color-scheme: light;
   /* Palette source of truth. Each themed color is defined once as a
      light/dark pair; the active tokens below and the `data-theme` overrides
      in App.css reference these, so a hex value lives in exactly one place. */
@@ -39,6 +40,7 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
+    color-scheme: dark;
     --color-text: var(--dark-color-text);
     --color-background: var(--dark-color-background);
     --color-logo-primary: var(--dark-color-logo-primary);
@@ -59,6 +61,7 @@
  * the settings window and the recording overlay alike — honours the override.
  */
 :root[data-theme="light"] {
+  color-scheme: light;
   --color-text: var(--light-color-text);
   --color-background: var(--light-color-background);
   --color-logo-primary: var(--light-color-logo-primary);
@@ -68,10 +71,19 @@
 }
 
 :root[data-theme="dark"] {
+  color-scheme: dark;
   --color-text: var(--dark-color-text);
   --color-background: var(--dark-color-background);
   --color-logo-primary: var(--dark-color-logo-primary);
   --color-logo-stroke: var(--dark-color-logo-stroke);
   --color-warning: var(--dark-color-warning);
   --color-error: var(--dark-color-error);
+}
+
+/* Native popup menus must use the same palette as their select control. */
+select,
+select option,
+select optgroup {
+  color: var(--color-text);
+  background-color: var(--color-background);
 }

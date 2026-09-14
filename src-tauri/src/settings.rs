@@ -10,6 +10,17 @@ use std::fmt;
 use tauri::AppHandle;
 use tauri_plugin_store::StoreExt;
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum SuperwhisperModel {
+    #[default]
+    Scribe,
+    S1Voice,
+}
+
+pub(crate) const SUPERWHISPER_USER_AGENT: &str =
+    "superwhisper/2.16.6 (com.superduper.superwhisper; build:2.16.6; macOS 26.5.2) Alamofire/5.8.0";
+
 pub const APPLE_INTELLIGENCE_PROVIDER_ID: &str = "apple_intelligence";
 pub const APPLE_INTELLIGENCE_DEFAULT_MODEL_ID: &str = "Apple Intelligence";
 
@@ -441,6 +452,8 @@ pub struct AppSettings {
     #[serde(default)]
     pub superwhisper_audio_events: Option<bool>,
     #[serde(default)]
+    pub superwhisper_model: SuperwhisperModel,
+    #[serde(default)]
     pub onboarding_completed: bool,
     #[serde(default = "default_always_on_microphone")]
     pub always_on_microphone: bool,
@@ -697,6 +710,14 @@ fn default_post_process_provider_id() -> String {
 fn default_post_process_providers() -> Vec<PostProcessProvider> {
     let mut providers = vec![
         PostProcessProvider {
+            id: "superwhisper".to_string(),
+            label: "Superwhisper".to_string(),
+            base_url: "https://api.superwhisper.com".to_string(),
+            allow_base_url_edit: false,
+            models_endpoint: Some("/models/language/cloud".to_string()),
+            supports_structured_output: false,
+        },
+        PostProcessProvider {
             id: "openai".to_string(),
             label: "OpenAI".to_string(),
             base_url: "https://api.openai.com/v1".to_string(),
@@ -794,6 +815,9 @@ fn default_post_process_api_keys() -> SecretMap {
 }
 
 fn default_model_for_provider(provider_id: &str) -> String {
+    if provider_id == "superwhisper" {
+        return "gemini-3.7-flash".to_string();
+    }
     if provider_id == APPLE_INTELLIGENCE_PROVIDER_ID {
         return APPLE_INTELLIGENCE_DEFAULT_MODEL_ID.to_string();
     }
@@ -973,6 +997,7 @@ pub fn get_default_settings() -> AppSettings {
         transcription_api_keys: SecretMap::default(),
         elevenlabs_audio_events: default_elevenlabs_audio_events(),
         superwhisper_audio_events: None,
+        superwhisper_model: SuperwhisperModel::default(),
         onboarding_completed: false,
         always_on_microphone: false,
         selected_microphone: None,

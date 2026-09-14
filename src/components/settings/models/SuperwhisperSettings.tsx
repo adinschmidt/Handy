@@ -194,7 +194,10 @@ export function SuperwhisperSettings() {
               ? "default"
               : String(settings.superwhisper_audio_events)
           }
-          disabled={isUpdating("superwhisper_audio_events")}
+          disabled={
+            isUpdating("superwhisper_audio_events") ||
+            settings?.superwhisper_model === "s1_voice"
+          }
           onChange={(event) =>
             void updateSetting(
               "superwhisper_audio_events",
@@ -218,6 +221,29 @@ export function SuperwhisperSettings() {
         <span className="block text-xs text-text/55">
           {t("settings.models.cloud.superwhisper.audioEventsDescription")}
         </span>
+      </label>
+      <label className="block space-y-1.5">
+        <span className="text-xs font-medium text-text/65">
+          {t("settings.models.cloud.superwhisper.model")}
+        </span>
+        <select
+          value={settings?.superwhisper_model ?? "scribe"}
+          disabled={isUpdating("superwhisper_model")}
+          onChange={(event) => {
+            const model = event.target.value;
+            if (model === "scribe" || model === "s1_voice") {
+              void updateSetting("superwhisper_model", model);
+            }
+          }}
+          className="w-full rounded-lg border border-mid-gray/40 bg-background px-3 py-2 text-sm disabled:opacity-50"
+        >
+          <option value="scribe">
+            {t("settings.models.cloud.superwhisper.scribe")}
+          </option>
+          <option value="s1_voice">
+            {t("settings.models.cloud.superwhisper.s1Voice")}
+          </option>
+        </select>
       </label>
       {error && (
         <p role="alert" className="text-xs text-red-500">

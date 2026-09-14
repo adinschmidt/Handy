@@ -182,6 +182,25 @@ async fn post_process_transcription(settings: &AppSettings, transcription: &str)
         provider.id, model
     );
 
+    if provider.id == "superwhisper" {
+        let credentials = match settings.superwhisper_credentials() {
+            Ok(credentials) => credentials,
+            Err(error) => {
+                warn!("Superwhisper post-processing skipped: {error}");
+                return None;
+            }
+        };
+        let processed_prompt = prompt.replace("${output}", transcription);
+        return match crate::superwhisper_llm::complete(credentials, &model, &processed_prompt).await
+        {
+            Ok(content) => Some(strip_invisible_chars(strip_think_block(&content))),
+            Err(error) => {
+                warn!("Superwhisper post-processing failed: {error}. Keeping the original transcription.");
+                None
+            }
+        };
+    }
+
     let api_key = settings
         .post_process_api_keys
         .get(&provider.id)

@@ -897,6 +897,9 @@ async importSuperwhisperCredentials() : Promise<Result<null, SuperwhisperImportE
 async changeSuperwhisperAudioEvents(enabled: boolean | null) : Promise<void> {
     await TAURI_INVOKE("change_superwhisper_audio_events", { enabled });
 },
+async changeSuperwhisperModel(model: SuperwhisperModel) : Promise<void> {
+    await TAURI_INVOKE("change_superwhisper_model", { model });
+},
 async getHistoryEntries(cursor: number | null, limit: number | null) : Promise<Result<PaginatedHistory, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("get_history_entries", { cursor, limit }) };
@@ -1072,7 +1075,7 @@ elevenlabs_audio_events?: boolean;
 /**
  * None preserves the proxy default by omitting tag_audio_events.
  */
-superwhisper_audio_events?: boolean | null; onboarding_completed?: boolean; always_on_microphone?: boolean; selected_microphone?: string | null;
+superwhisper_audio_events?: boolean | null; superwhisper_model?: SuperwhisperModel; onboarding_completed?: boolean; always_on_microphone?: boolean; selected_microphone?: string | null;
 /**
  * Which input channel to use on the selected microphone device.
  * None means "average all channels" (original behavior).
@@ -1260,6 +1263,7 @@ export type StreamTextEvent = { committed: string; tentative: string }
  */
 export type StreamWorkKind = "transcribing" | "polishing"
 export type SuperwhisperImportError = "unsupported_platform" | "cache_unavailable" | "no_credentials"
+export type SuperwhisperModel = "scribe" | "s1_voice"
 /**
  * UI appearance mode. `System` follows the OS `prefers-color-scheme`; `Light`
  * and `Dark` force one of the two palettes Handy already ships.

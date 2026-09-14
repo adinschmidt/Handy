@@ -98,6 +98,50 @@ mod tests {
     const SIGNATURE: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
     #[test]
+    fn adds_language_provider_without_changing_existing_selection() {
+        let mut settings = AppSettings::default();
+        settings.post_process_provider_id = "openai".into();
+        settings
+            .post_process_providers
+            .retain(|provider| provider.id != "superwhisper");
+        settings.post_process_models.remove("superwhisper");
+        assert!(crate::settings::ensure_post_process_defaults(&mut settings));
+        assert_eq!(settings.post_process_provider_id, "openai");
+        assert_eq!(
+            settings.post_process_models["superwhisper"],
+            "gemini-3.7-flash"
+        );
+        assert!(
+            !settings
+                .post_process_provider("superwhisper")
+                .unwrap()
+                .supports_structured_output
+        );
+        assert!(!crate::settings::ensure_post_process_defaults(
+            &mut settings
+        ));
+    }
+
+    #[test]
+    fn older_settings_keep_scribe_and_s1_selection_round_trips() {
+        let mut saved = serde_json::to_value(AppSettings::default()).unwrap();
+        saved.as_object_mut().unwrap().remove("superwhisper_model");
+        let mut settings: AppSettings = serde_json::from_value(saved).unwrap();
+        assert_eq!(
+            settings.superwhisper_model,
+            crate::settings::SuperwhisperModel::Scribe
+        );
+        settings.superwhisper_model = crate::settings::SuperwhisperModel::S1Voice;
+        let saved = serde_json::to_value(settings).unwrap();
+        assert_eq!(saved["superwhisper_model"], "s1_voice");
+        let loaded: AppSettings = serde_json::from_value(saved).unwrap();
+        assert_eq!(
+            loaded.superwhisper_model,
+            crate::settings::SuperwhisperModel::S1Voice
+        );
+    }
+
+    #[test]
     fn validates_atomically_and_redacts_saved_credentials() {
         let mut settings = AppSettings::default();
         assert!(settings.superwhisper_credentials().is_err());
