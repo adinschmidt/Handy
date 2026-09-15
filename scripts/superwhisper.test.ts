@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   prepareAudio,
+  loadCredentials,
+  handyConfigPath,
   inferenceHost,
   options,
   render,
@@ -228,6 +230,57 @@ test("FFmpeg extracts AAC video without re-encoding and converts unsupported cod
     );
     expect(await createOther.exited).toBe(0);
     expect((await prepareAudio(other, dir)).mime).toBe("audio/wav");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("credentials prefer environment values and fill gaps from Handy without writes", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "superwhisper-config-test-"));
+  const path = join(dir, "settings_store.json");
+  try {
+    const content = JSON.stringify({
+      settings: {
+        transcription_api_keys: {
+          superwhisper_x_id: "saved-id",
+          superwhisper_x_license: "saved-license",
+          superwhisper_x_signature: "saved-signature",
+        },
+      },
+    });
+    await Bun.write(path, content);
+    const saved = await loadCredentials({}, path);
+    expect(saved.get("X-ID")).toBe("saved-id");
+    const mixed = await loadCredentials(
+      { SW_X_ID: "env-id", SW_X_LICENSE: "" },
+      path,
+    );
+    expect(mixed.get("X-ID")).toBe("env-id");
+    expect(mixed.get("X-License")).toBe("saved-license");
+    expect(mixed.get("X-Signature")).toBe("saved-signature");
+    expect(await Bun.file(path).text()).toBe(content);
+    await Bun.write(path, "invalid private content");
+    const complete = {
+      SW_X_ID: "env-id",
+      SW_X_LICENSE: "env-license",
+      SW_X_SIGNATURE: "env-signature",
+    };
+    expect((await loadCredentials(complete, path)).get("X-License")).toBe(
+      "env-license",
+    );
+    await expect(loadCredentials({}, path)).rejects.toThrow("invalid JSON");
+    await expect(
+      loadCredentials({}, join(dir, "missing.json")),
+    ).rejects.toThrow("SW_X_ID");
+    expect(handyConfigPath({}, "darwin", "/home/test")).toBe(
+      "/home/test/Library/Application Support/com.pais.handy/settings_store.json",
+    );
+    expect(
+      handyConfigPath({ XDG_DATA_HOME: "/data" }, "linux", "/home/test"),
+    ).toBe("/data/com.pais.handy/settings_store.json");
+    expect(
+      handyConfigPath({ APPDATA: "/roaming" }, "win32", "/home/test"),
+    ).toBe("/roaming/com.pais.handy/settings_store.json");
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

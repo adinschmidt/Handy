@@ -4,7 +4,23 @@
 
 ## Usage
 
-Provide `SW_X_ID`, `SW_X_LICENSE`, and `SW_X_SIGNATURE` through environment variables or a private environment file. Use the credential set from your licensed Superwhisper installation. The script does not read or change Handy settings.
+The CLI uses `SW_X_ID`, `SW_X_LICENSE`, and `SW_X_SIGNATURE` from the environment first. For each missing or blank value, it reads `settings.transcription_api_keys` from Handy's existing settings file. If all three environment values are present, it does not read the file. Handy settings are never modified.
+
+Default settings paths:
+
+- macOS: `~/Library/Application Support/com.pais.handy/settings_store.json`
+- Linux: `$XDG_DATA_HOME/com.pais.handy/settings_store.json`, defaulting to `~/.local/share/com.pais.handy/settings_store.json`
+- Windows: `%APPDATA%/com.pais.handy/settings_store.json`
+
+Use `--handy-config /path/to/settings_store.json` for a portable installation or a custom location. A missing file is allowed if credentials can otherwise be resolved. Unreadable or malformed settings produce an error when the file is needed. Offline `--from-json` rendering needs neither credentials nor Handy settings.
+
+If Superwhisper is already configured in Handy, run directly:
+
+```bash
+bun scripts/superwhisper.ts movie.mp4 --subtitles --diarize
+```
+
+You can still use a private environment file:
 
 ```bash
 bun --env-file="$HOME/.config/superwhisper-replay/env" scripts/superwhisper.ts recording.m4a

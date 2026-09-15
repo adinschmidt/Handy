@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { parseArgs } from "node:util";
-import { open, mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { open, mkdtemp, rm, readFile } from "node:fs/promises";
+import { tmpdir, homedir } from "node:os";
 import { join, resolve, parse, basename } from "node:path";
 
 const API = "https://api.superwhisper.com";
@@ -17,13 +17,15 @@ const HELP = `Usage: bun scripts/superwhisper.ts [options] <audio-or-video-file>
   -l, --language CODE      Language hint, default auto
   -o, --output FILE        Override output path, or - for stdout
       --save-json FILE    Also save the original response to a new file
+      --handy-config FILE  Override Handy settings path, including portable installs
       --from-json         Render a saved response without uploading audio
       --no-convert        Upload as-is instead of extracting with ffmpeg
   -h, --help              Show help
 
 Subtitles default to <input-basename>.srt beside the input; text uses stdout.
 Requires Bun, ffmpeg and ffprobe unless --no-convert or --from-json is used.
-Set SW_X_ID, SW_X_LICENSE, SW_X_SIGNATURE in the environment.
+SW_X_ID, SW_X_LICENSE, SW_X_SIGNATURE override saved Handy credentials.
+Missing values are read from Handy settings without changing the file.
 Bun's --env-file=/path/to/env can load credentials from a private file.
 Scribe revision is chosen by Superwhisper. S1 supports plain text only here.
 Audio is sent to Superwhisper and may consume account usage.
@@ -46,6 +48,7 @@ export function options(args: string[]) {
       output: { type: "string", short: "o" },
       "save-json": { type: "string" },
       "from-json": { type: "boolean" },
+      "handy-config": { type: "string" },
       "no-convert": { type: "boolean" },
     },
   });
@@ -204,6 +207,63 @@ async function jsonRequest(
     throw new Error("Superwhisper returned invalid JSON.");
   }
 }
+const CREDENTIAL_KEYS = [
+  ["SW_X_ID", "superwhisper_x_id"],
+  ["SW_X_LICENSE", "superwhisper_x_license"],
+  ["SW_X_SIGNATURE", "superwhisper_x_signature"],
+] as const;
+
+export function handyConfigPath(
+  env: Record<string, string | undefined>,
+  platform = process.platform,
+  home = homedir(),
+) {
+  const base =
+    platform === "darwin"
+      ? join(home, "Library", "Application Support")
+      : platform === "win32"
+        ? env.APPDATA || join(home, "AppData", "Roaming")
+        : env.XDG_DATA_HOME || join(home, ".local", "share");
+  return join(base, "com.pais.handy", "settings_store.json");
+}
+
+export async function loadCredentials(
+  env: Record<string, string | undefined>,
+  path = handyConfigPath(env),
+) {
+  const resolved = { ...env };
+  if (CREDENTIAL_KEYS.every(([key]) => env[key]?.trim()))
+    return credentials(resolved);
+  let content: string;
+  try {
+    content = await readFile(path, "utf8");
+  } catch (error: unknown) {
+    if (record(error) && error.code === "ENOENT") return credentials(resolved);
+    throw new Error(
+      "Could not read Handy settings. Check permissions or use --handy-config.",
+    );
+  }
+  let store: unknown;
+  try {
+    store = JSON.parse(content);
+  } catch {
+    throw new Error(
+      "Handy settings contain invalid JSON. Set all three SW_X_* variables or use --handy-config.",
+    );
+  }
+  const settings =
+    record(store) && record(store.settings) ? store.settings : undefined;
+  const keys =
+    settings && record(settings.transcription_api_keys)
+      ? settings.transcription_api_keys
+      : undefined;
+  for (const [envKey, configKey] of CREDENTIAL_KEYS) {
+    if (!env[envKey]?.trim() && typeof keys?.[configKey] === "string")
+      resolved[envKey] = keys[configKey];
+  }
+  return credentials(resolved);
+}
+
 export function credentials(env: Record<string, string | undefined>) {
   const headers = new Headers({
     "User-Agent": USER_AGENT,
@@ -216,9 +276,11 @@ export function credentials(env: Record<string, string | undefined>) {
     ["SW_X_LICENSE", "X-License"],
     ["SW_X_SIGNATURE", "X-Signature"],
   ]) {
-    const value = env[name!];
+    const value = env[name!]?.trim();
     if (!value || !/^[\x21-\x7e]+$/.test(value))
-      throw new Error(`Missing or invalid ${name}.`);
+      throw new Error(
+        `Missing or invalid ${name}. Set it in the environment or configure Superwhisper in Handy.`,
+      );
     headers.set(header!, value);
   }
   return headers;
@@ -379,7 +441,9 @@ async function main() {
   const input = Bun.file(opts.input);
   if (!(await input.exists()) || input.size === 0)
     throw new Error("Input file is missing or empty.");
-  const headers = opts["from-json"] ? undefined : credentials(process.env);
+  const headers = opts["from-json"]
+    ? undefined
+    : await loadCredentials(process.env, opts["handy-config"]);
   const destinations = [opts.output, opts["save-json"]].filter(
     (p): p is string => p !== undefined,
   );
