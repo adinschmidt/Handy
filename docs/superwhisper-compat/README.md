@@ -44,6 +44,10 @@ Superwhisper streams replies even when a request specifies `stream=false`. The a
 
 September 13, 2026 live probes through Handy's post-processing function returned the expected disposable corrected sentence for all three models. No separate OpenAI, Google, or Anthropic key was used.
 
+## Standalone CLI
+
+See the [Bun CLI guide](CLI.md) for file transcription, SRT subtitles, speaker labels, and audio-event options.
+
 ## Reference material
 
 Read these in order:
