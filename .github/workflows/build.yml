@@ -1,6 +1,28 @@
 name: "Build"
 
 on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: "GitHub runner label"
+        required: true
+        type: string
+      target:
+        description: "Rust target triple"
+        required: true
+        type: string
+      build-args:
+        description: "Tauri build arguments"
+        type: string
+        default: ""
+      asset-prefix:
+        description: "Artifact name prefix"
+        type: string
+        default: "handy-test"
+      upload-artifacts:
+        description: "Upload build artifacts"
+        type: boolean
+        default: true
   workflow_call:
     inputs:
       platform:
@@ -38,7 +60,7 @@ on:
       ref:
         required: false
         type: string
-        default: ${{ github.ref }}
+        default: ${{ github.sha }}
       is-debug-build:
         required: false
         type: boolean
@@ -75,7 +97,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: ${{ inputs.repository }}
-          ref: ${{ inputs.ref }}
+          ref: ${{ inputs.ref || github.sha }}
           fetch-depth: 0
 
       - name: Get version from tauri.conf.json
