@@ -555,6 +555,7 @@ jobs:
           $config | ConvertTo-Json -Depth 100 | Set-Content $configPath -Encoding utf8
 
       - name: Build with Tauri
+        id: build-tauri
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -827,19 +828,17 @@ jobs:
             src-tauri/target/${{ steps.build-profile.outputs.profile }}/bundle/rpm/*.rpm
           retention-days: 30
 
-      # Run on Windows releases too; upload-artifacts only controls retention.
-      - name: Verify Opus round-trip (Windows ARM64)
-        if: contains(inputs.platform, 'windows') && contains(inputs.target, 'aarch64')
-        working-directory: src-tauri
-        shell: pwsh
-        run: |
-          cargo test --release --target aarch64-pc-windows-msvc --lib audio_toolkit::opus::tests --no-run
-          if ($LASTEXITCODE -ne 0) { throw "Opus test compilation failed" }
-          # Cargo's test executable needs the same app-local runtime as the installers.
-          # The runner's system VC++ runtime can be older than its build toolset.
-          Copy-Item "transcribe-libs/*.dll" "target/aarch64-pc-windows-msvc/release/deps/" -Force
-          cargo test --release --target aarch64-pc-windows-msvc --lib audio_toolkit::opus::tests
+      - name: Upload artifacts (Windows)
+        if: inputs.upload-artifacts && contains(inputs.platform, 'windows')
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.asset-prefix }}-${{ inputs.target }}
+          path: |
+            src-tauri/target/${{ inputs.target != '' && inputs.target != 'x86_64-pc-windows-msvc' && format('{0}/{1}', inputs.target, steps.build-profile.outputs.profile) || steps.build-profile.outputs.profile }}/bundle/msi/*.msi
+            src-tauri/target/${{ inputs.target != '' && inputs.target != 'x86_64-pc-windows-msvc' && format('{0}/{1}', inputs.target, steps.build-profile.outputs.profile) || steps.build-profile.outputs.profile }}/bundle/nsis/*.exe
+          retention-days: 30
 
+      # Run on Windows releases too; upload-artifacts only controls retention.
       - name: Audit Windows package runtime contents
         if: contains(inputs.platform, 'windows')
         shell: pwsh
@@ -893,6 +892,7 @@ jobs:
             $deviceOutput = (& $handy.FullName --list-devices | Out-String)
             $deviceOutput | Write-Host
             if ($LASTEXITCODE -ne 0) {
+              & .github/scripts/diagnose-windows-imports.ps1 -Executable $handy.FullName
               throw "$Label handy.exe --list-devices failed"
             }
             if ("${{ inputs.target }}" -like "aarch64*" -and $deviceOutput -match "kind=(vulkan|cuda|metal|gpu)") {
@@ -942,12 +942,23 @@ jobs:
             Remove-Item -Recurse -Force $installDir
           }
 
-      - name: Upload artifacts (Windows)
-        if: inputs.upload-artifacts && contains(inputs.platform, 'windows')
-        uses: actions/upload-artifact@v7
-        with:
-          name: ${{ inputs.asset-prefix }}-${{ inputs.target }}
-          path: |
-            src-tauri/target/${{ inputs.target != '' && inputs.target != 'x86_64-pc-windows-msvc' && format('{0}/{1}', inputs.target, steps.build-profile.outputs.profile) || steps.build-profile.outputs.profile }}/bundle/msi/*.msi
-            src-tauri/target/${{ inputs.target != '' && inputs.target != 'x86_64-pc-windows-msvc' && format('{0}/{1}', inputs.target, steps.build-profile.outputs.profile) || steps.build-profile.outputs.profile }}/bundle/nsis/*.exe
-          retention-days: 30
+      - name: Verify Opus round-trip (Windows ARM64)
+        if: ${{ !cancelled() && steps.build-tauri.outcome == 'success' && contains(inputs.platform, 'windows') && contains(inputs.target, 'aarch64') }}
+        working-directory: src-tauri
+        shell: pwsh
+        run: |
+          $testExecutable = $null
+          cargo test --release --target aarch64-pc-windows-msvc --lib audio_toolkit::opus::tests --no-run --message-format=json-render-diagnostics | ForEach-Object {
+            $message = $_ | ConvertFrom-Json
+            if ($message.reason -eq 'compiler-artifact' -and $message.profile.test -and $message.target.name -eq 'handy_app_lib' -and $message.executable) {
+              $testExecutable = $message.executable
+            }
+          }
+          if ($LASTEXITCODE -ne 0 -or -not $testExecutable) { throw "Opus test compilation failed" }
+          # Cargo's test executable needs the same app-local runtime as the installers.
+          Copy-Item "transcribe-libs/*.dll" (Split-Path -Parent $testExecutable) -Force
+          & $testExecutable audio_toolkit::opus::tests
+          if ($LASTEXITCODE -ne 0) {
+            & ../.github/scripts/diagnose-windows-imports.ps1 -Executable $testExecutable
+            throw "Opus round-trip test failed"
+          }
