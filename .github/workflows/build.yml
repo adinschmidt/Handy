@@ -957,6 +957,15 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or -not $testExecutable) { throw "Opus test compilation failed" }
           # Cargo's test executable needs the same app-local runtime as the installers.
           Copy-Item "transcribe-libs/*.dll" (Split-Path -Parent $testExecutable) -Force
+          # Tauri's app manifest selects Common Controls v6, which provides TaskDialogIndirect.
+          # Cargo's unit-test executable does not inherit that executable resource.
+          $manifestTool = Join-Path (Split-Path -Parent $env:TAURI_WINDOWS_SIGNTOOL_PATH) "mt.exe"
+          $manifest = Join-Path $env:RUNNER_TEMP "handy-test.manifest"
+          $appExecutable = (Resolve-Path "target/aarch64-pc-windows-msvc/release/handy.exe").Path
+          & $manifestTool -nologo "-inputresource:$appExecutable;#1" "-out:$manifest"
+          if ($LASTEXITCODE -ne 0) { throw "App manifest extraction failed" }
+          & $manifestTool -nologo -manifest $manifest "-outputresource:$testExecutable;#1"
+          if ($LASTEXITCODE -ne 0) { throw "Test manifest embedding failed" }
           & $testExecutable audio_toolkit::opus::tests
           if ($LASTEXITCODE -ne 0) {
             & ../.github/scripts/diagnose-windows-imports.ps1 -Executable $testExecutable
