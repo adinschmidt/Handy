@@ -444,6 +444,9 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          # Cargo caches can retain DLL links from the former DirectML-enabled build.
+          # Tauri includes adjacent DLLs, so remove that obsolete runtime before bundling.
+          Get-ChildItem "src-tauri/target" -Filter "DirectML.dll" -Recurse -ErrorAction SilentlyContinue | Remove-Item -Force
           $ORT_VERSION = "1.24.2"
           $arch = if ("${{ inputs.target }}" -like "aarch64*") { "arm64" } else { "x64" }
           $url = "https://github.com/microsoft/onnxruntime/releases/download/v$ORT_VERSION/onnxruntime-win-$arch-$ORT_VERSION.zip"
