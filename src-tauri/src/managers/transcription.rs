@@ -1,6 +1,6 @@
 use crate::audio_toolkit::{
     apply_custom_words, detect_output_language, normalize_transcription_output,
-    remove_filler_words, OutputLanguageEvidence,
+    remove_filler_words, split_at_pauses, OutputLanguageEvidence,
 };
 use crate::managers::audio::AudioRecordingManager;
 use crate::managers::model::{EngineType, ModelManager};
@@ -33,11 +33,13 @@ use transcribe_rs::{
         sense_voice::{SenseVoiceModel, SenseVoiceParams},
         Quantization,
     },
-    SpeechModel, TranscribeOptions,
+    SpeechModel, TranscribeError, TranscribeOptions,
 };
 
 const STREAM_PERF_LOG_INTERVAL: Duration = Duration::from_secs(5);
 const STREAM_FINALIZE_REPLY_TIMEOUT: Duration = Duration::from_secs(30);
+/// Longest audio `transcribe_in_chunks` passes to a model in one call: 30 s at 16 kHz.
+const MAX_DECODE_CHUNK_SAMPLES: usize = 30 * 16_000;
 
 fn panic_payload_message(payload: &(dyn std::any::Any + Send)) -> String {
     if let Some(message) = payload.downcast_ref::<&str>() {
@@ -1407,9 +1409,7 @@ impl TranscriptionManager {
                             translate: settings.translate_to_english,
                             ..Default::default()
                         };
-                        canary_engine
-                            .transcribe(&audio, &options)
-                            .map(|r| r.text)
+                        transcribe_in_chunks(canary_engine, &audio, &options)
                             .map_err(|e| anyhow::anyhow!("Canary transcription failed: {}", e))
                     }
                     LoadedEngine::Cohere(cohere_engine) => {
@@ -1423,9 +1423,7 @@ impl TranscriptionManager {
                             language: lang,
                             ..Default::default()
                         };
-                        cohere_engine
-                            .transcribe(&audio, &options)
-                            .map(|r| r.text)
+                        transcribe_in_chunks(cohere_engine, &audio, &options)
                             .map_err(|e| anyhow::anyhow!("Cohere transcription failed: {}", e))
                     }
                 }
@@ -1638,6 +1636,33 @@ impl StreamPerf {
     fn compute_secs(&self) -> f64 {
         self.stream_compute_elapsed.as_secs_f64()
     }
+}
+
+/// Transcribe audio in pieces cut at pauses. Given minutes of audio in one
+/// call, Cohere and Canary skip sentences and fall into repeating loops until
+/// their decoder's token limit ends the transcript early.
+fn transcribe_in_chunks(
+    model: &mut dyn SpeechModel,
+    audio: &[f32],
+    options: &TranscribeOptions,
+) -> Result<String, TranscribeError> {
+    let chunks = split_at_pauses(audio, MAX_DECODE_CHUNK_SAMPLES);
+    if chunks.len() > 1 {
+        debug!("Transcribing in {} chunks", chunks.len());
+    }
+    let separator = match options.language.as_deref() {
+        Some("zh" | "ja") if !options.translate => "",
+        _ => " ",
+    };
+    let mut texts = Vec::with_capacity(chunks.len());
+    for chunk in chunks {
+        let text = model.transcribe(&audio[chunk], options)?.text;
+        let text = text.trim();
+        if !text.is_empty() {
+            texts.push(text.to_string());
+        }
+    }
+    Ok(texts.join(separator))
 }
 
 fn real_time_factor(audio_secs: f64, compute_secs: f64) -> f64 {

@@ -8,8 +8,8 @@ pub mod vad;
 
 pub use audio::{
     encode_wav_bytes, is_microphone_access_denied, is_no_input_device_error, list_input_devices,
-    list_output_devices, read_wav_samples, save_wav_file, verify_wav_file, AudioRecorder,
-    CpalDeviceInfo, VadPolicy,
+    list_output_devices, read_wav_samples, save_wav_file, split_at_pauses, verify_wav_file,
+    AudioRecorder, CpalDeviceInfo, VadPolicy,
 };
 pub use lang_id::detect_output_language;
 pub use opus::encode_ogg_opus;
