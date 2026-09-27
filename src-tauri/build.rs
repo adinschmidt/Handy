@@ -135,9 +135,8 @@ fn stage_onnxruntime_dll() {
         );
     }
 
-    // transcribe-libs/ is already created by stage_transcribe_runtime_libs() on the
-    // Windows x86_64 dynamic-backends build and bundled by tauri.windows.conf.json;
-    // create it defensively so this is self-contained.
+    // ARM64 links transcribe-cpp statically, so create the staging directory even
+    // when stage_transcribe_runtime_libs() had no shared libraries to copy.
     let dest_dir =
         PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("transcribe-libs");
     std::fs::create_dir_all(&dest_dir).expect("create transcribe-libs staging dir");
