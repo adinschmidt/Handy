@@ -2557,6 +2557,7 @@ dependencies = [
  "ogg",
  "once_cell",
  "opus",
+ "opusic-sys",
  "plist",
  "rdev",
  "regex",

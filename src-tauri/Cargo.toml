@@ -151,6 +151,9 @@ transcribe-cpp = { version = "0.2.3", default-features = false, features = [
 
 [target.'cfg(all(windows, target_arch = "aarch64"))'.dependencies]
 transcribe-cpp = { version = "0.2.3", default-features = false }
+# Bundled Opus uses ARM32 __emit instructions for MSVC CPU detection.
+# Use its portable encoder on Windows ARM64 until that detection supports clang-cl.
+opusic-sys = { version = "0.7.5", features = ["no-simd"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 plist = "1.8"
