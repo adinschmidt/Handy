@@ -831,7 +831,14 @@ jobs:
       - name: Verify Opus round-trip (Windows ARM64)
         if: contains(inputs.platform, 'windows') && contains(inputs.target, 'aarch64')
         working-directory: src-tauri
-        run: cargo test --release --target aarch64-pc-windows-msvc --lib audio_toolkit::opus::tests
+        shell: pwsh
+        run: |
+          cargo test --release --target aarch64-pc-windows-msvc --lib audio_toolkit::opus::tests --no-run
+          if ($LASTEXITCODE -ne 0) { throw "Opus test compilation failed" }
+          # Cargo's test executable needs the same app-local runtime as the installers.
+          # The runner's system VC++ runtime can be older than its build toolset.
+          Copy-Item "transcribe-libs/*.dll" "target/aarch64-pc-windows-msvc/release/deps/" -Force
+          cargo test --release --target aarch64-pc-windows-msvc --lib audio_toolkit::opus::tests
 
       - name: Audit Windows package runtime contents
         if: contains(inputs.platform, 'windows')
