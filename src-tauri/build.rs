@@ -135,8 +135,6 @@ fn stage_onnxruntime_dll() {
         );
     }
 
-    // ARM64 links transcribe-cpp statically, so create the staging directory even
-    // when stage_transcribe_runtime_libs() had no shared libraries to copy.
     let dest_dir =
         PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("transcribe-libs");
     std::fs::create_dir_all(&dest_dir).expect("create transcribe-libs staging dir");
@@ -405,8 +403,7 @@ fn build_apple_intelligence_bridge() {
     let object_path = out_dir.join("apple_intelligence.o");
     let static_lib_path = out_dir.join("libapple_intelligence.a");
 
-    // SDKROOT/SWIFTC env-var overrides let non-Xcode toolchains (e.g. nixpkgs
-    // with apple-sdk_* + standalone swift) bypass xcrun, which is Xcode-only.
+    // Explicit SDKROOT and SWIFTC overrides bypass xcrun's toolchain selection.
     let sdk_path = env::var("SDKROOT").unwrap_or_else(|_| {
         String::from_utf8(
             Command::new("xcrun")
@@ -435,8 +432,7 @@ fn build_apple_intelligence_bridge() {
     // the CLT `swiftc` has no FoundationModelsMacros plugin (full Xcode only).
     // Detecting this lets a plain `cargo build` / `tauri dev` succeed without the
     // manual flag. Skipped when SWIFTC is overridden: that signals a custom
-    // toolchain (e.g. the nixpkgs standalone-swift path supported above) whose
-    // capabilities can't be inferred from `xcode-select`.
+    // toolchain whose capabilities can't be inferred from `xcode-select`.
     let command_line_tools_only = env::var("SWIFTC").is_err() && is_command_line_tools_only();
     if command_line_tools_only && !force_stub {
         println!(
@@ -498,7 +494,7 @@ fn build_apple_intelligence_bridge() {
             // Without this flag swiftc treats single-file input as script
             // mode and emits its own `_main` symbol into the .o, which can
             // win the link against Rust's main under some linkers (e.g.
-            // open-source ld64 used in nixpkgs' Darwin stdenv), producing a
+            // open-source ld64), producing a
             // binary whose main() is a 5-instruction no-op that returns 0.
             // `-parse-as-library` keeps the compilation in library mode so
             // no `_main` is emitted. See:

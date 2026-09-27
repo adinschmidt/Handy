@@ -1,6 +1,8 @@
 # Build Instructions
 
-This guide covers how to set up the development environment and build Handy from source across different platforms.
+This fork builds macOS for Intel and Apple Silicon, Windows for x64, and Linux for x64 and ARM64. Linux packages include AppImage, DEB, and RPM.
+
+This guide covers how to set up the development environment and build Handy from source on these platforms.
 
 ## Prerequisites
 

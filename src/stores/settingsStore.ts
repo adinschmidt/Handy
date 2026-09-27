@@ -768,8 +768,7 @@ export const useSettingsStore = create<SettingsStore>()(
       }
     },
 
-    // Check whether update checks are locked by system configuration
-    // (e.g. HANDY_DISABLE_UPDATER, set by the Nix package)
+    // Read the fork's updater policy before considering saved preferences.
     loadUpdateChecksLocked: async () => {
       try {
         const locked = await commands.isUpdateChecksLocked();

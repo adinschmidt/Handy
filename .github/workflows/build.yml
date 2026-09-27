@@ -176,11 +176,8 @@ jobs:
         run: |
           ldconfig -p | grep -q "libopenblas.so.0"
 
-      # x86_64 only — Windows-on-ARM links transcribe-cpp statically CPU-only
-      # (no `vulkan` feature; see src-tauri/Cargo.toml), so ggml-vulkan is never
-      # built there and no Vulkan SDK, headers, or glslc are needed.
       - name: Install Vulkan SDK (Windows x64)
-        if: contains(inputs.platform, 'windows') && !contains(inputs.target, 'aarch64')
+        if: contains(inputs.platform, 'windows')
         uses: humbletim/install-vulkan-sdk@v1.2
         with:
           version: 1.4.309.0
@@ -230,12 +227,7 @@ jobs:
           sudo apt-get install -y mesa-vulkan-drivers
 
       - name: install frontend dependencies
-        if: ${{ !(contains(inputs.platform, 'windows') && contains(inputs.target, 'aarch64')) }}
         run: bun install
-
-      - name: install frontend dependencies (Windows ARM64)
-        if: ${{ contains(inputs.platform, 'windows') && contains(inputs.target, 'aarch64') }}
-        run: bun install --cpu=arm64
 
       - name: rustup install target
         if: ${{ inputs.target != '' && !contains(inputs.target, 'x86_64-unknown-linux-gnu') && !contains(inputs.target, 'aarch64-unknown-linux-gnu') && !contains(inputs.target, 'x86_64-pc-windows-msvc') }}
@@ -288,54 +280,10 @@ jobs:
           fi
           echo "platform=${patched_platform}" >> $GITHUB_OUTPUT
 
-      # ggml refuses to build its ARM CPU backend under MSVC (upstream check in
-      # ggml/src/ggml-cpu/CMakeLists.txt: "MSVC is not supported for ARM, use
-      # clang"), so the Windows-ARM build must use clang-cl. transcribe-cpp-sys
-      # drives CMake via the cmake crate, which resolves the compiler through the
-      # cc crate — i.e. the CC/CXX env vars, NOT CMAKE_C_COMPILER (which is why an
-      # earlier CMAKE_C_COMPILER-only attempt still configured with MSVC cl.exe).
-      # Ninja (honored by the cmake crate) sidesteps the VS generator's toolset.
-      - name: Configure cmake for ARM64 (Windows)
-        if: contains(inputs.platform, 'windows') && contains(inputs.target, 'aarch64')
-        shell: pwsh
-        run: |
-          echo "CMAKE_GENERATOR=Ninja" >> $env:GITHUB_ENV
-          echo "CC=clang-cl" >> $env:GITHUB_ENV
-          echo "CXX=clang-cl" >> $env:GITHUB_ENV
-          echo "CMAKE_C_COMPILER=clang-cl" >> $env:GITHUB_ENV
-          echo "CMAKE_CXX_COMPILER=clang-cl" >> $env:GITHUB_ENV
-          echo "CMAKE_C_COMPILER_TARGET=aarch64-pc-windows-msvc" >> $env:GITHUB_ENV
-          echo "CMAKE_CXX_COMPILER_TARGET=aarch64-pc-windows-msvc" >> $env:GITHUB_ENV
-          echo "CL=/EHsc" >> $env:GITHUB_ENV
-          # Link uses lld-link + llvm-mt; use llvm-rc for resources too. Microsoft's
-          # rc.exe fails the manifest with "RC2136" under this clang-cl/lld toolchain
-          # (seen in ggml-vulkan's vulkan-shaders-gen host sub-build). CMake honors
-          # the RC env var, and the ExternalProject sub-build inherits it.
-          echo "RC=llvm-rc" >> $env:GITHUB_ENV
-          # Two ARM-static CMake overrides, forwarded by src-tauri/build.rs to the
-          # transcribe-cpp-sys configure via TRANSCRIBE_CMAKE_ARGS (applied AFTER
-          # the crate's own -D's, so ours win):
-          #
-          #   GGML_NATIVE=OFF  — only the dynamic-backends path force-sets this; a
-          #     plain static build inherits ggml's default GGML_NATIVE=ON
-          #     (= -mcpu=native), tuning the binary to THIS runner's CPU — a
-          #     distribution hazard. Pin OFF for a portable ARM baseline.
-          #
-          #   GGML_OPENMP=OFF  — transcribe-cpp-sys force-sets GGML_OPENMP=ON on
-          #     Windows, assuming MSVC auto-links vcomp via the /openmp pragma. But
-          #     ARM builds with clang-cl, whose /openmp emits LLVM-OMP refs
-          #     (__kmpc_*/omp_*) with no auto-linked runtime, so the static final
-          #     link fails with LNK2019 unresolved externals. The crate's CENTRAL
-          #     POLICY notes ggml's non-OpenMP barrier only deadlocks under MSVC
-          #     *codegen* ("works on every other compiler"), and clang-cl is LLVM
-          #     codegen — so disabling OpenMP is safe here and avoids shipping or
-          #     statically linking libomp.
-          echo "TRANSCRIBE_CMAKE_ARGS=-DGGML_NATIVE=OFF -DGGML_OPENMP=OFF" >> $env:GITHUB_ENV
-
       # Bundle the VC++ runtime app-local so Handy starts on machines without a
       # current Microsoft redistributable. build.rs stages DLLs from these dirs
       # into transcribe-libs/, using the same VS install that compiled the code.
-      # x64 also needs vcomp140.dll for ggml OpenMP; ARM64 disables OpenMP.
+      # Include vcomp140.dll for ggml OpenMP.
       - name: Locate VC++ runtime redist for app-local bundling (Windows)
         if: contains(inputs.platform, 'windows')
         shell: pwsh
@@ -346,8 +294,7 @@ jobs:
           if (-not $vsRoot) { throw "vswhere found no Visual Studio installation" }
           $versionFile = Join-Path $vsRoot "VC\Auxiliary\Build\Microsoft.VCRedistVersion.default.txt"
           $redistVersion = (Get-Content $versionFile).Trim()
-          $arch = if ("${{ inputs.target }}" -like "aarch64*") { "arm64" } else { "x64" }
-          $archDir = Join-Path $vsRoot "VC\Redist\MSVC\$redistVersion\$arch"
+          $archDir = Join-Path $vsRoot "VC\Redist\MSVC\$redistVersion\x64"
           if (-not (Test-Path $archDir)) { throw "VC++ redist arch dir not found: $archDir" }
           # Glob the VC generation folder; the runtime DLL names stay ABI-stable.
           $crt = Get-ChildItem $archDir -Directory -Filter "Microsoft.VC*.CRT" |
@@ -355,41 +302,14 @@ jobs:
           if (-not $crt -or -not (Test-Path (Join-Path $crt.FullName "msvcp140.dll"))) {
             throw "VC++ CRT redist dir not found or incomplete under: $archDir"
           }
-          $dirs = $crt.FullName
-          if ($arch -eq "x64") {
-            $omp = Get-ChildItem $archDir -Directory -Filter "Microsoft.VC*.OpenMP" |
-              Sort-Object Name | Select-Object -Last 1
-            if (-not $omp -or -not (Test-Path (Join-Path $omp.FullName "vcomp140.dll"))) {
-              throw "VC++ OpenMP redist dir not found or incomplete under: $archDir"
-            }
-            $dirs = "$($crt.FullName);$($omp.FullName)"
+          $omp = Get-ChildItem $archDir -Directory -Filter "Microsoft.VC*.OpenMP" |
+            Sort-Object Name | Select-Object -Last 1
+          if (-not $omp -or -not (Test-Path (Join-Path $omp.FullName "vcomp140.dll"))) {
+            throw "VC++ OpenMP redist dir not found or incomplete under: $archDir"
           }
+          $dirs = "$($crt.FullName);$($omp.FullName)"
           Write-Host "HANDY_VC_REDIST_DIRS=$dirs"
           Add-Content -Path $env:GITHUB_ENV -Value "HANDY_VC_REDIST_DIRS=$dirs"
-
-      # MSI packaging verifies bundled .dll/.exe resources with signtool before
-      # custom signing. Tauri's SDK lookup has no ARM64 host mapping, so pass
-      # the tool explicitly once ARM64 starts bundling runtime DLLs.
-      - name: Point tauri-bundler at signtool.exe (Windows ARM64)
-        if: contains(inputs.platform, 'windows') && contains(inputs.target, 'aarch64')
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $bin = "${env:ProgramFiles(x86)}\Windows Kits\10\bin"
-          $candidates = @(
-            Get-ChildItem "$bin\10.0.*\arm64\signtool.exe" -ErrorAction SilentlyContinue
-            Get-ChildItem "$bin\10.0.*\x64\signtool.exe" -ErrorAction SilentlyContinue
-          ) | Where-Object { $_ }
-          if (-not $candidates) {
-            throw "signtool.exe not found under $bin (is a Windows SDK installed on this runner?)"
-          }
-          # Prefer native arm64 (x64 works too, under emulation); within an
-          # arch, the newest SDK version wins.
-          $signtool = $candidates |
-            Sort-Object { $_.FullName -match '\\arm64\\' }, FullName |
-            Select-Object -Last 1
-          Write-Host "TAURI_WINDOWS_SIGNTOOL_PATH=$($signtool.FullName)"
-          Add-Content -Path $env:GITHUB_ENV -Value "TAURI_WINDOWS_SIGNTOOL_PATH=$($signtool.FullName)"
 
       - name: Install ONNX Runtime (x86_64 macOS)
         if: inputs.target == 'x86_64-apple-darwin'
@@ -431,12 +351,10 @@ jobs:
             '.bundle.linux.deb.files["/usr/lib/Handy/libonnxruntime.so.1"] = $so1' \
             src-tauri/tauri.conf.json > tmp.json && mv tmp.json src-tauri/tauri.conf.json
 
-      # Microsoft's CPU-only ONNX Runtime avoids two pyke archive dependencies:
-      # x64's global AVX2 baseline crashes older CPUs before main(), and ARM64's
-      # static archive links DirectML even when its execution provider is disabled.
-      # The x64 CPU build uses an SSE2 baseline with runtime dispatch to newer
-      # instructions. build.rs stages onnxruntime.dll into transcribe-libs/,
-      # which tauri.windows.conf.json bundles beside Handy.exe on both architectures.
+      # Microsoft's CPU-only ONNX Runtime uses an SSE2 baseline with runtime
+      # dispatch to newer instructions. Pyke's x64 archive uses a global AVX2
+      # baseline that crashes older CPUs before main(). build.rs stages the DLL
+      # into transcribe-libs/ for app-local bundling.
       # NOTE: sourced from Microsoft's GitHub release; can be re-hosted on
       # blob.handy.computer to match the macOS/Linux steps.
       - name: Install ONNX Runtime (Windows)
@@ -448,11 +366,10 @@ jobs:
           # Tauri includes adjacent DLLs, so remove that obsolete runtime before bundling.
           Get-ChildItem "src-tauri/target" -Filter "DirectML.dll" -Recurse -ErrorAction SilentlyContinue | Remove-Item -Force
           $ORT_VERSION = "1.24.2"
-          $arch = if ("${{ inputs.target }}" -like "aarch64*") { "arm64" } else { "x64" }
-          $url = "https://github.com/microsoft/onnxruntime/releases/download/v$ORT_VERSION/onnxruntime-win-$arch-$ORT_VERSION.zip"
+          $url = "https://github.com/microsoft/onnxruntime/releases/download/v$ORT_VERSION/onnxruntime-win-x64-$ORT_VERSION.zip"
           Invoke-WebRequest -Uri $url -OutFile ort.zip
           Expand-Archive -Path ort.zip -DestinationPath ort-dist -Force
-          $ortLib = (Resolve-Path "ort-dist/onnxruntime-win-$arch-$ORT_VERSION/lib").Path
+          $ortLib = (Resolve-Path "ort-dist/onnxruntime-win-x64-$ORT_VERSION/lib").Path
           Write-Host "ORT_LIB_LOCATION=$ortLib"
           Add-Content -Path $env:GITHUB_ENV -Value "ORT_LIB_LOCATION=$ortLib"
           Add-Content -Path $env:GITHUB_ENV -Value "ORT_PREFER_DYNAMIC_LINK=1"
@@ -463,13 +380,12 @@ jobs:
       # but the CI Vulkan SDK install does not expose a findable
       # SPIRV-HeadersConfig.cmake, so the configure fails. Provide the
       # header-only package via vcpkg and put its prefix on CMAKE_PREFIX_PATH
-      # (the cmake crate forwards it as -DCMAKE_PREFIX_PATH). x86_64 only — the
-      # Windows ARM64 build is CPU-only, so ggml-vulkan is never built there.
+      # (the cmake crate forwards it as -DCMAKE_PREFIX_PATH).
       # SPIRV-Headers is header-only, so the triplet is immaterial;
       # SPIRV-HeadersConfig.cmake is a CONFIG package, so plain CMAKE_PREFIX_PATH
       # resolves it with no vcpkg toolchain.
       - name: Install SPIRV-Headers for transcribe-cpp Vulkan build (Windows x64)
-        if: contains(inputs.platform, 'windows') && !contains(inputs.target, 'aarch64')
+        if: contains(inputs.platform, 'windows')
         shell: pwsh
         run: |
           vcpkg install spirv-headers:x64-windows
@@ -555,7 +471,6 @@ jobs:
           $config | ConvertTo-Json -Depth 100 | Set-Content $configPath -Encoding utf8
 
       - name: Build with Tauri
-        id: build-tauri
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -834,8 +749,8 @@ jobs:
         with:
           name: ${{ inputs.asset-prefix }}-${{ inputs.target }}
           path: |
-            src-tauri/target/${{ inputs.target != '' && inputs.target != 'x86_64-pc-windows-msvc' && format('{0}/{1}', inputs.target, steps.build-profile.outputs.profile) || steps.build-profile.outputs.profile }}/bundle/msi/*.msi
-            src-tauri/target/${{ inputs.target != '' && inputs.target != 'x86_64-pc-windows-msvc' && format('{0}/{1}', inputs.target, steps.build-profile.outputs.profile) || steps.build-profile.outputs.profile }}/bundle/nsis/*.exe
+            src-tauri/target/${{ steps.build-profile.outputs.profile }}/bundle/msi/*.msi
+            src-tauri/target/${{ steps.build-profile.outputs.profile }}/bundle/nsis/*.exe
           retention-days: 30
 
       # Run on Windows releases too; upload-artifacts only controls retention.
@@ -844,13 +759,7 @@ jobs:
         shell: pwsh
         run: |
           $profile = "${{ steps.build-profile.outputs.profile }}"
-          $target = "${{ inputs.target }}"
-          $base = "src-tauri/target"
-          if ($target -and $target -ne "x86_64-pc-windows-msvc") {
-            $bundleBase = Join-Path $base (Join-Path $target (Join-Path $profile "bundle"))
-          } else {
-            $bundleBase = Join-Path $base (Join-Path $profile "bundle")
-          }
+          $bundleBase = "src-tauri/target/$profile/bundle"
 
           # VC++ runtime staging is mandatory for every Windows build.
           $stagedDlls = Get-ChildItem "src-tauri/transcribe-libs" -Filter "*.dll" -ErrorAction SilentlyContinue
@@ -858,16 +767,12 @@ jobs:
             throw "src-tauri/transcribe-libs contains no DLLs; every Windows build must stage the app-local VC++ runtime (issue #1527)"
           }
 
-          # Both architectures ship ORT; only x64 needs transcribe/ggml/OpenMP DLLs.
-          $requiredStaged = @("msvcp140.dll", "vcruntime140.dll", "onnxruntime.dll")
-          if ("${{ inputs.target }}" -notlike "aarch64*") {
-            $requiredStaged += @("vcomp140.dll")
-            if (-not ($stagedDlls | Where-Object { $_.Name -like "*transcribe*" })) {
-              throw "Staging is missing transcribe runtime DLLs"
-            }
-            if (-not ($stagedDlls | Where-Object { $_.Name -like "*ggml*" })) {
-              throw "Staging is missing ggml runtime DLLs"
-            }
+          $requiredStaged = @("msvcp140.dll", "vcruntime140.dll", "onnxruntime.dll", "vcomp140.dll")
+          if (-not ($stagedDlls | Where-Object { $_.Name -like "*transcribe*" })) {
+            throw "Staging is missing transcribe runtime DLLs"
+          }
+          if (-not ($stagedDlls | Where-Object { $_.Name -like "*ggml*" })) {
+            throw "Staging is missing ggml runtime DLLs"
           }
           foreach ($name in $requiredStaged) {
             if (-not ($stagedDlls | Where-Object { $_.Name -ieq $name })) {
@@ -894,12 +799,6 @@ jobs:
             if ($LASTEXITCODE -ne 0) {
               & .github/scripts/diagnose-windows-imports.ps1 -Executable $handy.FullName
               throw "$Label handy.exe --list-devices failed"
-            }
-            if ("${{ inputs.target }}" -like "aarch64*" -and $deviceOutput -match "kind=(vulkan|cuda|metal|gpu)") {
-              throw "$Label Windows ARM64 package unexpectedly exposed a GPU compute device"
-            }
-            if ("${{ inputs.target }}" -like "aarch64*" -and $deviceOutput -notmatch "kind=cpu") {
-              throw "$Label Windows ARM64 package did not expose its required CPU compute device"
             }
           }
 
@@ -940,34 +839,4 @@ jobs:
             }
             Assert-PackageContents -Root $installDir -Label "Installed MSI"
             Remove-Item -Recurse -Force $installDir
-          }
-
-      - name: Verify Opus round-trip (Windows ARM64)
-        if: ${{ !cancelled() && steps.build-tauri.outcome == 'success' && contains(inputs.platform, 'windows') && contains(inputs.target, 'aarch64') }}
-        working-directory: src-tauri
-        shell: pwsh
-        run: |
-          $testExecutable = $null
-          cargo test --release --target aarch64-pc-windows-msvc --lib audio_toolkit::opus::tests --no-run --message-format=json-render-diagnostics | ForEach-Object {
-            $message = $_ | ConvertFrom-Json
-            if ($message.reason -eq 'compiler-artifact' -and $message.profile.test -and $message.target.name -eq 'handy_app_lib' -and $message.executable) {
-              $testExecutable = $message.executable
-            }
-          }
-          if ($LASTEXITCODE -ne 0 -or -not $testExecutable) { throw "Opus test compilation failed" }
-          # Cargo's test executable needs the same app-local runtime as the installers.
-          Copy-Item "transcribe-libs/*.dll" (Split-Path -Parent $testExecutable) -Force
-          # Tauri's app manifest selects Common Controls v6, which provides TaskDialogIndirect.
-          # Cargo's unit-test executable does not inherit that executable resource.
-          $manifestTool = Join-Path (Split-Path -Parent $env:TAURI_WINDOWS_SIGNTOOL_PATH) "mt.exe"
-          $manifest = Join-Path $env:RUNNER_TEMP "handy-test.manifest"
-          $appExecutable = (Resolve-Path "target/aarch64-pc-windows-msvc/release/handy.exe").Path
-          & $manifestTool -nologo "-inputresource:$appExecutable;#1" "-out:$manifest"
-          if ($LASTEXITCODE -ne 0) { throw "App manifest extraction failed" }
-          & $manifestTool -nologo -manifest $manifest "-outputresource:$testExecutable;#1"
-          if ($LASTEXITCODE -ne 0) { throw "Test manifest embedding failed" }
-          & $testExecutable audio_toolkit::opus::tests
-          if ($LASTEXITCODE -ne 0) {
-            & ../.github/scripts/diagnose-windows-imports.ps1 -Executable $testExecutable
-            throw "Opus round-trip test failed"
           }
