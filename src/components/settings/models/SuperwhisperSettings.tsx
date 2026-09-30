@@ -1,11 +1,21 @@
 import { platform } from "@tauri-apps/plugin-os";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import type { SuperwhisperModel } from "@/bindings";
 import { useSettings } from "@/hooks/useSettings";
 import {
   hasSuperwhisperCredentials,
   superwhisperFields,
 } from "@/lib/superwhisper";
+import { Button } from "@/components/ui/Button";
+import { Input } from "@/components/ui/Input";
+import { Select } from "@/components/ui/Select";
+import { SettingContainer } from "@/components/ui/SettingContainer";
+import {
+  CloudProviderCard,
+  CloudProviderFooter,
+  CloudProviderRow,
+} from "./CloudProviderCard";
 
 const emptyCredentials = {
   superwhisper_x_id: "",
@@ -13,14 +23,57 @@ const emptyCredentials = {
   superwhisper_x_signature: "",
 };
 
+const models = [
+  { value: "scribe", label: "settings.models.cloud.superwhisper.scribe" },
+  { value: "s1_voice", label: "settings.models.cloud.superwhisper.s1Voice" },
+] as const satisfies readonly { value: SuperwhisperModel; label: string }[];
+
+// `null` omits `tag_audio_events`, leaving the choice to Superwhisper.
+const audioEventOptions = [
+  {
+    value: "default",
+    setting: null,
+    label: "settings.models.cloud.superwhisper.audioEventsDefault",
+  },
+  {
+    value: "true",
+    setting: true,
+    label: "settings.models.cloud.superwhisper.audioEventsOn",
+  },
+  {
+    value: "false",
+    setting: false,
+    label: "settings.models.cloud.superwhisper.audioEventsOff",
+  },
+] as const;
+
 export function SuperwhisperSettings() {
+  const { t } = useTranslation();
+  const { settings } = useSettings();
+  const model = models.find(
+    ({ value }) => value === (settings?.superwhisper_model ?? "scribe"),
+  );
+
+  return (
+    <CloudProviderCard
+      provider="superwhisper_scribe"
+      name={t("settings.models.cloud.superwhisper.name")}
+      description={t("settings.models.cloud.superwhisper.description")}
+      summary={model && t(model.label)}
+      configured={hasSuperwhisperCredentials(settings?.transcription_api_keys)}
+    >
+      <SuperwhisperFields />
+    </CloudProviderCard>
+  );
+}
+
+function SuperwhisperFields() {
   const { t } = useTranslation();
   const {
     settings,
     updateSetting,
     updateSuperwhisperCredentials,
     importSuperwhisperCredentials,
-    setTranscriptionProvider,
     isUpdating,
   } = useSettings();
   const [credentials, setCredentials] = useState(emptyCredentials);
@@ -40,13 +93,15 @@ export function SuperwhisperSettings() {
     keys?.superwhisper_x_license,
     keys?.superwhisper_x_signature,
   ]);
-  const active =
-    settings?.selected_transcription_provider === "superwhisper_scribe";
   const busy =
     isUpdating("superwhisper_credentials") ||
     isUpdating("selected_transcription_provider");
   const dirty = superwhisperFields.some(
     ({ key }) => credentials[key].trim() !== (keys?.[key]?.trim() ?? ""),
+  );
+  const selectedModel = settings?.superwhisper_model ?? "scribe";
+  const audioEvents = audioEventOptions.find(
+    ({ setting }) => setting === (settings?.superwhisper_audio_events ?? null),
   );
 
   async function save(clear = false) {
@@ -90,58 +145,13 @@ export function SuperwhisperSettings() {
     }
   }
 
-  async function select() {
-    setError(null);
-    try {
-      await setTranscriptionProvider("superwhisper_scribe");
-    } catch {
-      setError(t("settings.models.cloud.superwhisper.selectError"));
-    }
-  }
-
   return (
-    <div className="rounded-lg border border-mid-gray/30 bg-background p-4 space-y-3">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <div className="text-sm font-medium">
-            {t("settings.models.cloud.superwhisper.name")}
-          </div>
-          <p className="mt-1 text-xs text-text/55">
-            {t("settings.models.cloud.superwhisper.description")}
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => void select()}
-          disabled={
-            active || busy || dirty || !hasSuperwhisperCredentials(keys)
-          }
-          className="rounded-lg bg-logo-primary px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
-        >
-          {t(
-            active
-              ? "settings.models.cloud.active"
-              : "settings.models.cloud.use",
-          )}
-        </button>
-      </div>
-      {isMac && (
-        <div className="space-y-1.5">
-          <button
-            type="button"
-            onClick={() => void importCredentials()}
-            disabled={busy}
-            className="text-sm text-logo-primary disabled:opacity-50"
-          >
-            {t("settings.models.cloud.superwhisper.import")}
-          </button>
-        </div>
-      )}
+    <>
       {superwhisperFields.map(({ key, label }) => (
-        <label key={key} className="block space-y-1.5">
-          <span className="text-xs font-medium text-text/65">{t(label)}</span>
-          <input
+        <CloudProviderRow key={key} label={t(label)}>
+          <Input
             type="password"
+            variant="compact"
             autoComplete="off"
             spellCheck={false}
             value={credentials[key]}
@@ -154,112 +164,108 @@ export function SuperwhisperSettings() {
               setSaved(false);
               setImported(false);
             }}
-            className="w-full rounded-lg border border-mid-gray/40 bg-mid-gray/10 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-logo-primary disabled:opacity-50"
+            className="flex-1 min-w-0"
           />
-        </label>
+        </CloudProviderRow>
       ))}
-      <p className="text-xs text-text/55">
-        {t("settings.models.cloud.superwhisper.storageWarning")}
-      </p>
-      <div className="flex gap-3">
-        <button
-          type="button"
-          onClick={() => void save()}
-          disabled={busy || !dirty || !hasSuperwhisperCredentials(credentials)}
-          className="text-sm text-logo-primary disabled:opacity-50"
-        >
-          {t("settings.models.cloud.superwhisper.save")}
-        </button>
-        <button
-          type="button"
-          onClick={() => void save(true)}
-          disabled={
-            busy ||
-            !superwhisperFields.some(
-              ({ key }) => credentials[key] || keys?.[key],
-            )
-          }
-          className="text-sm text-text/65 disabled:opacity-50"
-        >
-          {t("settings.models.cloud.superwhisper.clear")}
-        </button>
-      </div>
-      <label className="block space-y-1.5">
-        <span className="text-xs font-medium text-text/65">
-          {t("settings.models.cloud.superwhisper.audioEvents")}
-        </span>
-        <select
-          value={
-            settings?.superwhisper_audio_events == null
-              ? "default"
-              : String(settings.superwhisper_audio_events)
-          }
+      <CloudProviderFooter>
+        <p>{t("settings.models.cloud.superwhisper.storageWarning")}</p>
+        <div className="flex items-center gap-2 text-text">
+          {isMac && (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => void importCredentials()}
+              disabled={busy}
+            >
+              {t("settings.models.cloud.superwhisper.import")}
+            </Button>
+          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => void save(true)}
+            disabled={
+              busy ||
+              !superwhisperFields.some(
+                ({ key }) => credentials[key] || keys?.[key],
+              )
+            }
+            className="ms-auto"
+          >
+            {t("settings.models.cloud.superwhisper.clear")}
+          </Button>
+          <Button
+            variant="primary-soft"
+            size="sm"
+            onClick={() => void save()}
+            disabled={
+              busy || !dirty || !hasSuperwhisperCredentials(credentials)
+            }
+          >
+            {t("settings.models.cloud.superwhisper.save")}
+          </Button>
+        </div>
+        {error && (
+          <p role="alert" className="text-red-500">
+            {error}
+          </p>
+        )}
+        {imported && (
+          <p role="status">
+            {t("settings.models.cloud.superwhisper.imported")}
+          </p>
+        )}
+        {saved && (
+          <p role="status">{t("settings.models.cloud.superwhisper.saved")}</p>
+        )}
+      </CloudProviderFooter>
+      <CloudProviderRow label={t("settings.models.cloud.superwhisper.model")}>
+        <Select
+          value={selectedModel}
+          options={models.map(({ value, label }) => ({
+            value,
+            label: t(label),
+          }))}
+          isClearable={false}
+          disabled={isUpdating("superwhisper_model")}
+          onChange={(value) => {
+            const model = models.find((option) => option.value === value);
+            if (model) void updateSetting("superwhisper_model", model.value);
+          }}
+          className="min-w-0 flex-1 text-sm"
+        />
+      </CloudProviderRow>
+      <SettingContainer
+        title={t("settings.models.cloud.superwhisper.audioEvents")}
+        description={t(
+          "settings.models.cloud.superwhisper.audioEventsDescription",
+        )}
+        grouped
+        disabled={selectedModel === "s1_voice"}
+      >
+        <Select
+          value={audioEvents?.value ?? "default"}
+          options={audioEventOptions.map(({ value, label }) => ({
+            value,
+            label: t(label),
+          }))}
+          isClearable={false}
           disabled={
             isUpdating("superwhisper_audio_events") ||
-            settings?.superwhisper_model === "s1_voice"
+            selectedModel === "s1_voice"
           }
-          onChange={(event) =>
-            void updateSetting(
-              "superwhisper_audio_events",
-              event.target.value === "default"
-                ? null
-                : event.target.value === "true",
-            )
-          }
-          className="w-full rounded-lg border border-mid-gray/40 bg-background px-3 py-2 text-sm disabled:opacity-50"
-        >
-          <option value="default">
-            {t("settings.models.cloud.superwhisper.audioEventsDefault")}
-          </option>
-          <option value="true">
-            {t("settings.models.cloud.superwhisper.audioEventsOn")}
-          </option>
-          <option value="false">
-            {t("settings.models.cloud.superwhisper.audioEventsOff")}
-          </option>
-        </select>
-        <span className="block text-xs text-text/55">
-          {t("settings.models.cloud.superwhisper.audioEventsDescription")}
-        </span>
-      </label>
-      <label className="block space-y-1.5">
-        <span className="text-xs font-medium text-text/65">
-          {t("settings.models.cloud.superwhisper.model")}
-        </span>
-        <select
-          value={settings?.superwhisper_model ?? "scribe"}
-          disabled={isUpdating("superwhisper_model")}
-          onChange={(event) => {
-            const model = event.target.value;
-            if (model === "scribe" || model === "s1_voice") {
-              void updateSetting("superwhisper_model", model);
+          onChange={(value) => {
+            const option = audioEventOptions.find(
+              (candidate) => candidate.value === value,
+            );
+            if (option) {
+              void updateSetting("superwhisper_audio_events", option.setting);
             }
           }}
-          className="w-full rounded-lg border border-mid-gray/40 bg-background px-3 py-2 text-sm disabled:opacity-50"
-        >
-          <option value="scribe">
-            {t("settings.models.cloud.superwhisper.scribe")}
-          </option>
-          <option value="s1_voice">
-            {t("settings.models.cloud.superwhisper.s1Voice")}
-          </option>
-        </select>
-      </label>
-      {error && (
-        <p role="alert" className="text-xs text-red-500">
-          {error}
-        </p>
-      )}
-      {imported && (
-        <p role="status" className="text-xs text-text/65">
-          {t("settings.models.cloud.superwhisper.imported")}
-        </p>
-      )}
-      {saved && (
-        <p role="status" className="text-xs text-text/65">
-          {t("settings.models.cloud.superwhisper.saved")}
-        </p>
-      )}
-    </div>
+          className="w-72 text-sm"
+        />
+      </SettingContainer>
+    </>
   );
 }

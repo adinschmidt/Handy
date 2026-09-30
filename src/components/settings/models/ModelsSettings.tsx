@@ -1,3 +1,5 @@
+import { CodexSettings } from "./CodexSettings";
+import { ElevenlabsSettings } from "./ElevenlabsSettings";
 import { OpenrouterSettings } from "./OpenrouterSettings";
 import { SuperwhisperSettings } from "./SuperwhisperSettings";
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -5,7 +7,6 @@ import { useTranslation } from "react-i18next";
 import { ask } from "@tauri-apps/plugin-dialog";
 import {
   AudioLines,
-  Cloud,
   ChevronDown,
   Globe,
   Languages,
@@ -22,7 +23,6 @@ import {
 } from "@/lib/constants/languages.ts";
 import type { ModelInfo } from "@/bindings";
 import { useSettings } from "@/hooks/useSettings";
-import { ToggleSwitch } from "@/components/ui/ToggleSwitch";
 
 // check if model supports a language based on its supported_languages list
 const modelSupportsLanguage = (model: ModelInfo, langCode: string): boolean => {
@@ -37,20 +37,7 @@ const isLegacyModel = (model: ModelInfo): boolean =>
 
 export const ModelsSettings: React.FC = () => {
   const { t } = useTranslation();
-  const {
-    settings,
-    isUpdating,
-    getSetting,
-    updateSetting,
-    setTranscriptionProvider,
-    updateCodexAsrBaseUrl,
-    updateTranscriptionApiKey,
-  } = useSettings();
-  const [codexBaseUrl, setCodexBaseUrl] = useState("");
-  const [codexApiKey, setCodexApiKey] = useState("");
-  const [codexError, setCodexError] = useState<string | null>(null);
-  const [elevenLabsApiKey, setElevenLabsApiKey] = useState("");
-  const [elevenLabsError, setElevenLabsError] = useState<string | null>(null);
+  const { settings } = useSettings();
   const [switchingModelId, setSwitchingModelId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [filterStreaming, setFilterStreaming] = useState(false);
@@ -78,22 +65,6 @@ export const ModelsSettings: React.FC = () => {
   } = useModelStore();
 
   const activeProvider = settings?.selected_transcription_provider ?? "local";
-  const codexIsActive = activeProvider === "codex_asr";
-  const elevenLabsIsActive = activeProvider === "elevenlabs_scribe";
-
-  useEffect(() => {
-    setCodexBaseUrl(settings?.codex_asr_base_url ?? "http://127.0.0.1:8788");
-  }, [settings?.codex_asr_base_url]);
-
-  useEffect(() => {
-    setCodexApiKey(settings?.transcription_api_keys?.codex_asr ?? "");
-  }, [settings?.transcription_api_keys?.codex_asr]);
-
-  useEffect(() => {
-    setElevenLabsApiKey(
-      settings?.transcription_api_keys?.elevenlabs_scribe ?? "",
-    );
-  }, [settings?.transcription_api_keys?.elevenlabs_scribe]);
 
   // click outside handler for language dropdown
   useEffect(() => {
@@ -165,63 +136,6 @@ export const ModelsSettings: React.FC = () => {
   const getDownloadSpeed = (modelId: string): number | undefined => {
     const stats = downloadStats[modelId];
     return stats?.speed;
-  };
-
-  const saveCodexBaseUrl = async (): Promise<boolean> => {
-    try {
-      await updateCodexAsrBaseUrl(codexBaseUrl);
-      setCodexError(null);
-      return true;
-    } catch {
-      setCodexError(t("settings.models.cloud.invalidUrl"));
-      return false;
-    }
-  };
-
-  const saveCodexApiKey = async () => {
-    try {
-      await updateTranscriptionApiKey("codex_asr", codexApiKey);
-      setCodexError(null);
-    } catch {
-      setCodexError(t("settings.models.cloud.codex.keySaveError"));
-    }
-  };
-
-  const handleCodexSelect = async () => {
-    if (!(await saveCodexBaseUrl())) return;
-    await saveCodexApiKey();
-    try {
-      await setTranscriptionProvider("codex_asr");
-      setCodexError(null);
-    } catch {
-      setCodexError(t("modelSelector.providerError"));
-    }
-  };
-
-  const saveElevenLabsApiKey = async (): Promise<boolean> => {
-    try {
-      await updateTranscriptionApiKey("elevenlabs_scribe", elevenLabsApiKey);
-      if (!elevenLabsApiKey.trim()) {
-        if (elevenLabsIsActive) await setTranscriptionProvider("local");
-        setElevenLabsError(null);
-        return false;
-      }
-      setElevenLabsError(null);
-      return true;
-    } catch {
-      setElevenLabsError(t("settings.models.cloud.elevenlabs.keySaveError"));
-      return false;
-    }
-  };
-
-  const handleElevenLabsSelect = async () => {
-    if (!(await saveElevenLabsApiKey())) return;
-    try {
-      await setTranscriptionProvider("elevenlabs_scribe");
-      setElevenLabsError(null);
-    } catch {
-      setElevenLabsError(t("modelSelector.providerError"));
-    }
   };
 
   const handleModelSelect = async (modelId: string) => {
@@ -342,149 +256,12 @@ export const ModelsSettings: React.FC = () => {
         </p>
       </div>
 
-      <section className="space-y-3 rounded-xl border border-mid-gray/30 bg-mid-gray/5 p-4">
-        <div className="flex items-center gap-2">
-          <Cloud className="h-4 w-4 text-logo-primary" />
-          <h2 className="text-sm font-semibold">
-            {t("settings.models.cloud.title")}
-          </h2>
-        </div>
-        <div className="rounded-lg border border-mid-gray/30 bg-background p-4 space-y-3">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <div className="text-sm font-medium">
-                {t("settings.models.cloud.codex.name")}
-              </div>
-              <p className="mt-1 text-xs text-text/55">
-                {t("settings.models.cloud.codex.description")}
-              </p>
-            </div>
-            <button
-              type="button"
-              // Keep focus in the field the user was editing so its onBlur
-              // save doesn't race the click that activates the provider.
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => void handleCodexSelect()}
-              disabled={
-                codexIsActive || isUpdating("selected_transcription_provider")
-              }
-              className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-default ${
-                codexIsActive
-                  ? "bg-logo-primary/15 text-logo-primary"
-                  : "bg-logo-primary text-white hover:bg-logo-primary/90 disabled:opacity-50"
-              }`}
-            >
-              {codexIsActive
-                ? t("settings.models.cloud.active")
-                : t("settings.models.cloud.use")}
-            </button>
-          </div>
-          <label className="block space-y-1.5">
-            <span className="text-xs font-medium text-text/65">
-              {t("settings.models.cloud.baseUrl")}
-            </span>
-            <input
-              type="url"
-              value={codexBaseUrl}
-              onChange={(event) => setCodexBaseUrl(event.target.value)}
-              onBlur={() => {
-                if (codexIsActive) void saveCodexBaseUrl();
-              }}
-              disabled={isUpdating("codex_asr_base_url")}
-              className="w-full rounded-lg border border-mid-gray/40 bg-mid-gray/10 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-logo-primary disabled:opacity-50"
-            />
-          </label>
-          <label className="block space-y-1.5">
-            <span className="text-xs font-medium text-text/65">
-              {t("settings.models.cloud.apiKeyOptional")}
-            </span>
-            <input
-              type="password"
-              value={codexApiKey}
-              onChange={(event) => setCodexApiKey(event.target.value)}
-              onBlur={() => void saveCodexApiKey()}
-              autoComplete="off"
-              disabled={isUpdating("transcription_api_key:codex_asr")}
-              className="w-full rounded-lg border border-mid-gray/40 bg-mid-gray/10 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-logo-primary disabled:opacity-50"
-            />
-          </label>
-          {codexError && (
-            <p className="text-xs text-red-500" role="alert">
-              {codexError}
-            </p>
-          )}
-          <p className="text-xs text-text/45">
-            {t("settings.models.cloud.codex.setup")}
-          </p>
-        </div>
-
-        <div className="rounded-lg border border-mid-gray/30 bg-background p-4 space-y-3">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <div className="text-sm font-medium">
-                {t("settings.models.cloud.elevenlabs.name")}
-              </div>
-              <p className="mt-1 text-xs text-text/55">
-                {t("settings.models.cloud.elevenlabs.description")}
-              </p>
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                <span className="rounded-full bg-mid-gray/15 px-2 py-0.5 text-[10px] font-medium text-text/60">
-                  {t("settings.models.cloud.elevenlabs.model")}
-                </span>
-              </div>
-            </div>
-            <button
-              type="button"
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => void handleElevenLabsSelect()}
-              disabled={
-                elevenLabsIsActive ||
-                !elevenLabsApiKey.trim() ||
-                isUpdating("selected_transcription_provider")
-              }
-              className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-default ${
-                elevenLabsIsActive
-                  ? "bg-logo-primary/15 text-logo-primary"
-                  : "bg-logo-primary text-white hover:bg-logo-primary/90 disabled:opacity-50"
-              }`}
-            >
-              {elevenLabsIsActive
-                ? t("settings.models.cloud.active")
-                : t("settings.models.cloud.use")}
-            </button>
-          </div>
-          <label className="block space-y-1.5">
-            <span className="text-xs font-medium text-text/65">
-              {t("settings.models.cloud.apiKey")}
-            </span>
-            <input
-              type="password"
-              value={elevenLabsApiKey}
-              onChange={(event) => setElevenLabsApiKey(event.target.value)}
-              onBlur={() => void saveElevenLabsApiKey()}
-              autoComplete="off"
-              disabled={isUpdating("transcription_api_key:elevenlabs_scribe")}
-              className="w-full rounded-lg border border-mid-gray/40 bg-mid-gray/10 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-logo-primary disabled:opacity-50"
-            />
-          </label>
-          <ToggleSwitch
-            checked={getSetting("elevenlabs_audio_events") ?? true}
-            onChange={(enabled) =>
-              updateSetting("elevenlabs_audio_events", enabled)
-            }
-            isUpdating={isUpdating("elevenlabs_audio_events")}
-            label={t("settings.models.cloud.elevenlabs.audioEvents")}
-            description={t(
-              "settings.models.cloud.elevenlabs.audioEventsDescription",
-            )}
-            descriptionMode="inline"
-          />
-          {elevenLabsError && (
-            <p className="text-xs text-red-500" role="alert">
-              {elevenLabsError}
-            </p>
-          )}
-        </div>
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold">
+          {t("settings.models.cloud.title")}
+        </h2>
+        <CodexSettings />
+        <ElevenlabsSettings />
         <SuperwhisperSettings />
         <OpenrouterSettings />
       </section>

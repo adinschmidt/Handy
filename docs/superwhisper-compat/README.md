@@ -26,7 +26,7 @@ The fork already implements Codex ASR and direct ElevenLabs Scribe. Preserve the
 
 ## S1-Voice
 
-The model selector beneath audio-event tagging defaults to Scribe for existing settings. S1-Voice uses the same saved credentials. The persisted provider ID remains `superwhisper_scribe` for compatibility; `superwhisper_model` selects the transport.
+The Superwhisper model selector defaults to Scribe for existing settings. S1-Voice uses the same saved credentials. The persisted provider ID remains `superwhisper_scribe` for compatibility; `superwhisper_model` selects the transport.
 
 `src-tauri/src/transcription_provider/superwhisper_s1.rs` discovers the default region with `GET /v2/inference/regions`, then requests `POST /v2/inference/key?region=<id>` with an empty JSON object using the three device/license headers. Each transcription obtains a fresh token without persisting it. Only HTTPS hosts beneath `superwhisper.com` can receive that token.
 
@@ -76,7 +76,7 @@ Keep license activation, sync, background polling, and account management out of
 - `src-tauri/src/transcription_provider/mod.rs`: dispatch, shared HTTP client, cancellation-compatible requests, transcript cleanup.
 - `src-tauri/src/transcription_provider/elevenlabs.rs`: multipart Ogg Opus transport and audio-event preservation.
 - `src-tauri/src/commands/transcription.rs`: provider configuration commands.
-- `src/components/settings/models/ModelsSettings.tsx`, `src/stores/settingsStore.ts`, and `src/hooks/useSettings.ts`: cloud-provider settings.
+- `src/components/settings/models/`, `src/stores/settingsStore.ts`, and `src/hooks/useSettings.ts`: cloud-provider settings. Each provider renders its fields inside the shared `CloudProviderCard`.
 - `src-tauri/src/tray.rs`: provider selection must participate in `MenuInputs` so tray changes invalidate the cached menu.
 - `src/bindings.ts`: generated Tauri types. Keep aligned with Rust settings and commands.
 - `src/i18n/locales/en/translation.json`: new user-facing strings.

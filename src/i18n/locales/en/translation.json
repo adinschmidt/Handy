@@ -233,6 +233,7 @@
       "cloud": {
         "title": "Cloud",
         "active": "Active",
+        "needsSetup": "Needs setup",
         "use": "Use",
         "baseUrl": "Base URL",
         "codex": {
@@ -268,7 +269,6 @@
           "clear": "Clear credentials",
           "saved": "Credentials saved.",
           "saveError": "Could not save Superwhisper credentials. Check all three values.",
-          "selectError": "Could not select Superwhisper. Check the saved credentials.",
           "import": "Import from Superwhisper",
           "imported": "Credentials imported and saved. Their validity will be checked on your next transcription.",
           "importMissing": "No usable credentials found. Transcribe something in Superwhisper, then try importing again.",
@@ -287,12 +287,10 @@
           "description": "Transcribe recordings with speech-to-text models from OpenRouter.",
           "shortDescription": "Choose a cloud speech-to-text model",
           "keyRequired": "Save an API key and select a model in Models settings first.",
-          "storage": "Your API key is stored locally in Handy settings. Clear the field and save to remove it.",
-          "saveKey": "Save API key",
-          "model": "Transcription model",
+          "storage": "Your API key is stored locally in Handy settings. Clear the field to remove it.",
+          "model": "Model",
           "selectModel": "Select a model",
           "refresh": "Refresh models",
-          "loading": "Loading models...",
           "fetchError": "Could not load models. Check your API key and connection, then refresh.",
           "empty": "No transcription models are available.",
           "saveError": "Could not save OpenRouter settings. Try again."
