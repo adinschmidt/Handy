@@ -501,9 +501,11 @@ impl ShortcutAction for TranscribeAction {
         let tm = app.state::<Arc<TranscriptionManager>>();
         let rm = app.state::<Arc<AudioRecordingManager>>();
 
-        // Load the VAD model in parallel. Local ASR preparation happens after
-        // resolving the active transcription provider below.
+        // Load the local ASR model (only when Local is the active provider) and
+        // the VAD model in parallel.
         let kickoff_started = Instant::now();
+        let settings = get_settings(app);
+        transcription_provider::prepare_local_model(app, &settings);
         let rm_clone = Arc::clone(&rm);
         std::thread::spawn(move || {
             if let Err(e) = rm_clone.preload_vad() {
@@ -512,6 +514,21 @@ impl ShortcutAction for TranscribeAction {
         });
         let kickoff_elapsed = kickoff_started.elapsed();
 
+        // Don't open the mic if nothing can transcribe the recording; the load
+        // kicked off above fails and reports why. Cloud providers never load a
+        // local model, so they skip this check.
+        if settings.selected_transcription_provider == TranscriptionProvider::Local
+            && !tm.is_model_loaded()
+        {
+            if let Err(e) = app
+                .state::<Arc<ModelManager>>()
+                .get_model_path(&settings.selected_model)
+            {
+                warn!("Not starting recording: no model can transcribe it ({})", e);
+                return;
+            }
+        }
+
         let binding_id = binding_id.to_string();
         let tray_started = Instant::now();
         set_tray_state(app, TrayIconState::Recording);
@@ -519,9 +536,7 @@ impl ShortcutAction for TranscribeAction {
 
         // Get the microphone mode to determine audio feedback timing
         let plan_started = Instant::now();
-        let settings = get_settings(app);
         let is_always_on = settings.always_on_microphone;
-        transcription_provider::prepare_local_model(app, &settings);
 
         // Cloud providers are batch-only. Local targets keep their advertised
         // streaming behavior and existing live overlay path.
