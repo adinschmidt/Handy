@@ -1,6 +1,6 @@
-use crate::audio_feedback::open_output_stream;
+use crate::audio_feedback::{open_output_stream, OutputStream};
 use log::warn;
-use rodio::{Decoder, OutputStream, Sink, Source};
+use rodio::{Decoder, Sink, Source};
 use serde::Serialize;
 use specta::Type;
 use std::fs::File;

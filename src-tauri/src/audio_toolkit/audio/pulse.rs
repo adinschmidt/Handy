@@ -1,20 +1,21 @@
-//! Microphone capture through the PulseAudio protocol, which PipeWire also
+//! Capture and playback through the PulseAudio protocol, which PipeWire also
 //! serves (pipewire-pulse).
 //!
 //! cpal's ALSA host exposes each sound card as `plughw:N`. Selecting one opens
 //! the hardware directly: PipeWire loses the device while Handy holds it, the
 //! card disappears from the list whenever PipeWire is using it, and the device
-//! is reclocked to whatever rate Handy asks for. Capturing a named server
-//! source instead shares the device with every other application and leaves
-//! the system default source untouched.
+//! is reclocked to whatever rate Handy asks for. Streaming to or from a named
+//! server source or sink instead shares the device with every other
+//! application and leaves the system defaults untouched.
 
-use std::ffi::CString;
+use std::ffi::{CStr, CString};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures::executor::block_on;
-use pulseaudio::{protocol, Client, ClientError, RecordStream};
+use pulseaudio::{protocol, AsPlaybackSource, Client, ClientError, PlaybackStream, RecordStream};
 
 /// `Client::from_env` performs a blocking handshake with no socket timeout.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
@@ -24,6 +25,10 @@ const WATCHDOG_INTERVAL: Duration = Duration::from_secs(1);
 /// Requested delivery size. The server default for record streams can be
 /// seconds long, which would delay the first samples of every recording.
 const FRAGMENT_DURATION_MS: u64 = 20;
+/// Playback buffer: short enough that a feedback sound starts promptly.
+const PLAYBACK_BUFFER_MS: u64 = 50;
+/// How long closing a playback stream waits for buffered audio to play out.
+const DRAIN_TIMEOUT: Duration = Duration::from_secs(1);
 const BYTES_PER_SAMPLE: usize = 4;
 
 /// One connection shared by enumeration and capture, re-established after the
@@ -42,19 +47,52 @@ pub struct PulseSource {
     pub is_default: bool,
 }
 
-/// The source's current native layout, looked up at open time so the server
-/// only converts the sample format.
-pub struct CaptureFormat {
+/// A playback sink published by the sound server.
+#[derive(Clone, Debug)]
+pub struct PulseSink {
+    /// Server-side name used to route the stream.
+    pub name: String,
+    /// Human-readable name shown in the output device list.
+    pub description: String,
+    pub is_default: bool,
+}
+
+/// A source's or sink's current native layout, looked up at open time so the
+/// server only converts the sample format.
+pub struct StreamFormat {
     pub channels: usize,
     pub sample_rate: u32,
-    source_index: u32,
+    index: u32,
     channel_map: protocol::ChannelMap,
+}
+
+impl StreamFormat {
+    fn sample_spec(&self) -> protocol::SampleSpec {
+        protocol::SampleSpec {
+            format: protocol::SampleFormat::Float32Le,
+            channels: u8::try_from(self.channels).unwrap_or(u8::MAX),
+            sample_rate: self.sample_rate,
+        }
+    }
+
+    /// Size in bytes of `ms` milliseconds of f32 audio in this layout.
+    fn bytes_for(&self, ms: u64) -> u32 {
+        let frames = u64::from(self.sample_rate) * ms / 1000;
+        u32::try_from(frames * (self.channels * BYTES_PER_SAMPLE) as u64).unwrap_or(u32::MAX)
+    }
 }
 
 /// Keeps a record stream alive; the server deletes it once this is dropped.
 pub struct PulseCapture {
     _stream: RecordStream,
     _stop_watchdog: mpsc::Sender<()>,
+}
+
+/// Keeps a playback stream alive. Dropping it lets the server play out what it
+/// has buffered before the stream is deleted, so sounds are not cut short.
+pub struct PulsePlayback {
+    stream: PlaybackStream,
+    finished: Arc<AtomicBool>,
 }
 
 enum CallError {
@@ -89,13 +127,9 @@ pub fn list_sources() -> Result<Vec<PulseSource>, String> {
         .into_iter()
         .filter(|source| source.monitor_of_sink_index.is_none())
         .map(|source| {
-            let name = source.name.to_string_lossy().into_owned();
+            let (name, description) = names(&source.name, source.description.as_deref());
             PulseSource {
-                description: source
-                    .description
-                    .as_ref()
-                    .map(|description| description.to_string_lossy().into_owned())
-                    .unwrap_or_else(|| name.clone()),
+                description,
                 channels: u16::from(source.sample_spec.channels),
                 is_default: default_name.as_ref() == Some(&source.name),
                 name,
@@ -104,13 +138,52 @@ pub fn list_sources() -> Result<Vec<PulseSource>, String> {
         .collect())
 }
 
-pub fn capture_format(source_name: &str) -> Result<CaptureFormat, String> {
+pub fn list_sinks() -> Result<Vec<PulseSink>, String> {
+    let (default_name, sinks) = request(|client| {
+        let server = block_on(client.server_info())?;
+        let sinks = block_on(client.list_sinks())?;
+        Ok((server.default_sink_name, sinks))
+    })?;
+
+    Ok(sinks
+        .into_iter()
+        .map(|sink| {
+            let (name, description) = names(&sink.name, sink.description.as_deref());
+            PulseSink {
+                description,
+                is_default: default_name.as_ref() == Some(&sink.name),
+                name,
+            }
+        })
+        .collect())
+}
+
+fn names(name: &CStr, description: Option<&CStr>) -> (String, String) {
+    let name = name.to_string_lossy().into_owned();
+    let description = description
+        .map(|description| description.to_string_lossy().into_owned())
+        .unwrap_or_else(|| name.clone());
+    (name, description)
+}
+
+pub fn capture_format(source_name: &str) -> Result<StreamFormat, String> {
     let name = CString::new(source_name).map_err(|e| format!("Invalid source name: {e}"))?;
     let info = request(move |client| block_on(client.source_info_by_name(name.clone())))?;
-    Ok(CaptureFormat {
+    Ok(StreamFormat {
         channels: usize::from(info.sample_spec.channels),
         sample_rate: info.sample_spec.sample_rate,
-        source_index: info.index,
+        index: info.index,
+        channel_map: info.channel_map,
+    })
+}
+
+pub fn playback_format(sink_name: &str) -> Result<StreamFormat, String> {
+    let name = CString::new(sink_name).map_err(|e| format!("Invalid sink name: {e}"))?;
+    let info = request(move |client| block_on(client.sink_info_by_name(name.clone())))?;
+    Ok(StreamFormat {
+        channels: usize::from(info.sample_spec.channels),
+        sample_rate: info.sample_spec.sample_rate,
+        index: info.index,
         channel_map: info.channel_map,
     })
 }
@@ -120,27 +193,19 @@ pub fn capture_format(source_name: &str) -> Result<CaptureFormat, String> {
 /// `on_samples` runs on the client's I/O thread and always receives whole
 /// frames. `on_failure` runs once if the server or the stream goes away.
 pub fn open_capture(
-    format: &CaptureFormat,
+    format: &StreamFormat,
     mut on_samples: impl FnMut(&[f32]) + Send + 'static,
     on_failure: impl FnOnce() + Send + 'static,
 ) -> Result<PulseCapture, String> {
-    let frame_bytes = format.channels * BYTES_PER_SAMPLE;
-    let fragment_frames = u64::from(format.sample_rate) * FRAGMENT_DURATION_MS / 1000;
-    let fragment_size = u32::try_from(fragment_frames * frame_bytes as u64).unwrap_or(u32::MAX);
-
     let mut props = protocol::Props::new();
     props.set(protocol::Prop::MediaName, c"Microphone");
 
     let params = protocol::RecordStreamParams {
-        sample_spec: protocol::SampleSpec {
-            format: protocol::SampleFormat::Float32Le,
-            channels: u8::try_from(format.channels).unwrap_or(u8::MAX),
-            sample_rate: format.sample_rate,
-        },
+        sample_spec: format.sample_spec(),
         channel_map: format.channel_map,
-        source_index: Some(format.source_index),
+        source_index: Some(format.index),
         buffer_attr: protocol::stream::BufferAttr {
-            fragment_size,
+            fragment_size: format.bytes_for(FRAGMENT_DURATION_MS),
             ..Default::default()
         },
         flags: protocol::stream::StreamFlags {
@@ -151,7 +216,7 @@ pub fn open_capture(
         ..Default::default()
     };
 
-    let mut decoder = FrameDecoder::new(frame_bytes);
+    let mut decoder = FrameDecoder::new(format.channels * BYTES_PER_SAMPLE);
     let callback = move |data: &[u8]| {
         let samples = decoder.decode(data);
         if !samples.is_empty() {
@@ -189,6 +254,75 @@ pub fn open_capture(
         _stream: stream,
         _stop_watchdog: stop_watchdog,
     })
+}
+
+/// Starts playing interleaved f32 frames to the sink. `fill` runs on the
+/// client's I/O thread whenever the server wants more audio and must fill the
+/// whole buffer, using silence when it has nothing to play.
+pub fn open_playback(
+    format: &StreamFormat,
+    mut fill: impl FnMut(&mut [f32]) + Send + 'static,
+) -> Result<PulsePlayback, String> {
+    let mut props = protocol::Props::new();
+    props.set(protocol::Prop::MediaName, c"Playback");
+
+    let params = protocol::PlaybackStreamParams {
+        sample_spec: format.sample_spec(),
+        channel_map: format.channel_map,
+        sink_index: Some(format.index),
+        buffer_attr: protocol::stream::BufferAttr {
+            target_length: format.bytes_for(PLAYBACK_BUFFER_MS),
+            ..Default::default()
+        },
+        flags: protocol::stream::StreamFlags {
+            adjust_latency: true,
+            ..Default::default()
+        },
+        props,
+        ..Default::default()
+    };
+
+    let finished = Arc::new(AtomicBool::new(false));
+    let callback_finished = Arc::clone(&finished);
+    let mut samples = Vec::new();
+    // The server requests whole frames. Returning 0 ends the stream, which
+    // lets a drain complete once the stream is closing.
+    let callback = move |buf: &mut [u8]| {
+        if callback_finished.load(Ordering::Acquire) {
+            return 0;
+        }
+        let (chunks, _) = buf.as_chunks_mut::<BYTES_PER_SAMPLE>();
+        samples.resize(chunks.len(), 0.0);
+        fill(&mut samples);
+        for (chunk, sample) in chunks.iter_mut().zip(&samples) {
+            *chunk = sample.to_le_bytes();
+        }
+        chunks.len() * BYTES_PER_SAMPLE
+    };
+
+    let client = client()?.0;
+    let stream = call(client, move |client| {
+        block_on(client.create_playback_stream(params, callback.as_playback_source()))
+    })
+    .map_err(|e| {
+        forget_client();
+        format!("Failed to open sound server playback: {e}")
+    })?;
+
+    Ok(PulsePlayback { stream, finished })
+}
+
+impl Drop for PulsePlayback {
+    fn drop(&mut self) {
+        // Bounded so a stalled server cannot hold up the caller.
+        self.finished.store(true, Ordering::Release);
+        let stream = self.stream.clone();
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(block_on(stream.play_all()));
+        });
+        let _ = rx.recv_timeout(DRAIN_TIMEOUT);
+    }
 }
 
 /// Returns the shared client and whether it was connected by this call.
