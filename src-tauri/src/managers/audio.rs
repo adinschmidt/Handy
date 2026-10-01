@@ -915,7 +915,25 @@ impl AudioRecordingManager {
         Ok(())
     }
 
-    pub fn update_selected_device(&self) -> Result<(), anyhow::Error> {
+    pub fn update_selected_device(
+        &self,
+        selected_microphone: Option<String>,
+    ) -> Result<(), anyhow::Error> {
+        // Serialize against recording start/stop. Restarting an active capture
+        // would discard its samples and leave the manager's recording state out
+        // of sync with the new recorder.
+        let state = self.state.lock().unwrap();
+        if !matches!(*state, RecordingState::Idle) {
+            return Err(anyhow::anyhow!(
+                "Cannot change the microphone while recording"
+            ));
+        }
+
+        // The stream resolves its device from settings, so persist first.
+        let mut settings = get_settings(&self.app_handle);
+        settings.selected_microphone = selected_microphone;
+        write_settings(&self.app_handle, settings);
+
         // Device settings changed; re-enumerate the device and restart capture.
         self.invalidate_device_cache();
         let was_open = *self.is_open.lock().unwrap();
