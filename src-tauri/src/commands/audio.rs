@@ -1,5 +1,7 @@
 use crate::audio_feedback;
-use crate::audio_toolkit::audio::{list_input_devices, list_output_devices, AudioRecorder};
+use crate::audio_toolkit::audio::{
+    list_input_devices, list_output_devices, AudioRecorder, InputDevice,
+};
 use crate::managers::audio::{AudioRecordingManager, MicrophoneMode};
 use crate::settings::{get_settings, write_settings};
 use log::warn;
@@ -342,7 +344,9 @@ pub async fn get_microphone_channels(device_name: String) -> Result<u16, String>
         use cpal::traits::HostTrait;
 
         let device = if device_name.eq_ignore_ascii_case("default") {
-            crate::audio_toolkit::get_cpal_host().default_input_device()
+            crate::audio_toolkit::get_cpal_host()
+                .default_input_device()
+                .map(InputDevice::Cpal)
         } else {
             list_input_devices()
                 .map_err(|e| format!("Failed to list audio devices: {e}"))?
