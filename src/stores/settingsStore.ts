@@ -121,12 +121,16 @@ const settingUpdaters: {
     commands.changeShortcutActivationSetting(value as ShortcutActivation),
   hold_threshold_ms: (value) =>
     commands.changeHoldThresholdMsSetting(value as number),
-  selected_microphone: (value) =>
-    commands.setSelectedMicrophone(
+  selected_microphone: async (value) => {
+    const result = await commands.setSelectedMicrophone(
       (value as string) === "Default" || value === null
         ? "default"
         : (value as string),
-    ),
+    );
+    if (result.status === "error") {
+      throw new Error(result.error);
+    }
+  },
   selected_channel: async (value) => {
     const result = await commands.setSelectedChannel(
       (value as number | null | undefined) ?? null,
