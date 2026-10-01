@@ -152,6 +152,8 @@ objc2-service-management = "0.3.2"
 gtk-layer-shell = { version = "0.8", features = ["v0_6"] }
 gtk = "0.18"
 libc = "0.2"
+futures = "0.3"
+pulseaudio = "0.3"
 transcribe-cpp = { version = "0.2.4", default-features = false, features = [
   "dynamic-backends",
   "vulkan",

@@ -862,6 +862,8 @@ pub fn run(cli_args: CliArgs) {
         .plugin(
             LogBuilder::new()
                 .level(log::LevelFilter::Trace) // Set to most verbose level globally
+                // The PulseAudio client logs every request and reply at debug.
+                .level_for("pulseaudio", log::LevelFilter::Info)
                 .max_file_size(500_000)
                 .rotation_strategy(RotationStrategy::KeepOne)
                 .clear_targets()

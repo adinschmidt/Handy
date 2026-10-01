@@ -9,12 +9,14 @@ use std::{
 
 use cpal::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
-    Device, Sample, SizedSample,
+    Sample, SizedSample,
 };
 use rtrb::{Consumer, Producer, RingBuffer};
 
+#[cfg(target_os = "linux")]
+use super::pulse::{self, PulseCapture, PulseSource};
 use crate::audio_toolkit::{
-    audio::{AudioVisualiser, FrameResampler},
+    audio::{AudioVisualiser, FrameResampler, InputDevice},
     constants,
     vad::{self, VadFrame},
     VoiceActivityDetector,
@@ -34,6 +36,14 @@ const AUDIO_RING_SECONDS: usize = 2;
 const CONSUMER_POLL_INTERVAL: Duration = Duration::from_millis(10);
 const MAX_DRAIN_CHUNK: Duration = Duration::from_millis(50);
 const PAUSE_ACK_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// The platform stream feeding the ring, held for the worker's lifetime.
+#[allow(dead_code)] // Never read; dropping it stops capture.
+enum CaptureStream {
+    Cpal(cpal::Stream),
+    #[cfg(target_os = "linux")]
+    Pulse(PulseCapture),
+}
 
 /// Atomics shared by the callback and consumer; audio uses a wait-free SPSC ring.
 /// The callback must remain allocation-, lock-, logging-, and blocking-free.
@@ -86,7 +96,7 @@ pub type AudioFrameCallback = Arc<dyn Fn(&[f32]) + Send + Sync + 'static>;
 pub type LevelCallback = Arc<dyn Fn(Vec<f32>) + Send + Sync + 'static>;
 
 pub struct AudioRecorder {
-    device: Option<Device>,
+    device: Option<InputDevice>,
     cmd_tx: Option<mpsc::Sender<Cmd>>,
     worker_handle: Option<std::thread::JoinHandle<()>>,
     vad: Option<VadConfig>,
@@ -169,7 +179,7 @@ impl AudioRecorder {
         self.selected_channel = channel.map(usize::from);
     }
 
-    pub fn open(&mut self, device: Option<Device>) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn open(&mut self, device: Option<InputDevice>) -> Result<(), Box<dyn std::error::Error>> {
         if self.worker_handle.is_some() {
             if !self.needs_reopen() {
                 return Ok(()); // already open
@@ -186,9 +196,9 @@ impl AudioRecorder {
         let host = crate::audio_toolkit::get_cpal_host();
         let device = match device {
             Some(dev) => dev,
-            None => host
-                .default_input_device()
-                .ok_or_else(|| Error::new(std::io::ErrorKind::NotFound, "No input device found"))?,
+            None => InputDevice::Cpal(host.default_input_device().ok_or_else(|| {
+                Error::new(std::io::ErrorKind::NotFound, "No input device found")
+            })?),
         };
 
         let thread_device = device.clone();
@@ -203,7 +213,19 @@ impl AudioRecorder {
 
         let worker = std::thread::spawn(move || {
             let transport = Arc::new(CaptureTransportState::default());
-            let init_result = (|| -> Result<(cpal::Stream, u32, Consumer<f32>), String> {
+            let init_result = (|| -> Result<(CaptureStream, u32, Consumer<f32>), String> {
+                let thread_device = match &thread_device {
+                    InputDevice::Cpal(device) => device.clone(),
+                    #[cfg(target_os = "linux")]
+                    InputDevice::Pulse(source) => {
+                        return AudioRecorder::open_pulse_stream(
+                            source,
+                            selected_channel,
+                            &transport,
+                            &stream_error,
+                        );
+                    }
+                };
                 let config_started = Instant::now();
                 let device_name = thread_device.name().unwrap_or_default();
                 let cached_config = config_cache
@@ -231,19 +253,7 @@ impl AudioRecorder {
                     config.sample_format()
                 );
 
-                if let Some(channel) = selected_channel {
-                    if channel < channels {
-                        log::info!("Using selected input channel: {}", channel + 1);
-                    } else {
-                        log::warn!(
-                            "Selected input channel {} is out of range for a {}-channel device; averaging all channels instead",
-                            channel + 1,
-                            channels
-                        );
-                    }
-                } else {
-                    log::info!("Averaging all {} input channels", channels);
-                }
+                log_channel_selection(selected_channel, channels);
 
                 let build_started = Instant::now();
                 let (stream, sample_consumer) = match config.sample_format() {
@@ -312,7 +322,7 @@ impl AudioRecorder {
                     *config_cache.lock().unwrap() = Some((device_name, config));
                 }
 
-                Ok((stream, sample_rate, sample_consumer))
+                Ok((CaptureStream::Cpal(stream), sample_rate, sample_consumer))
             })();
 
             match init_result {
@@ -435,23 +445,7 @@ impl AudioRecorder {
         T: Sample + SizedSample + Copy + Send + 'static,
         f32: cpal::FromSample<T>,
     {
-        let ring_capacity = config.sample_rate().0 as usize * AUDIO_RING_SECONDS;
-        let (mut sample_producer, mut sample_consumer) = RingBuffer::new(ring_capacity);
-
-        // Touch rtrb's uninitialized pages before the stream starts to reduce
-        // callback page faults. This does not pin them.
-        {
-            let chunk = sample_producer
-                .write_chunk(ring_capacity)
-                .expect("new audio ring has its full capacity available");
-            chunk.commit_all();
-        }
-        {
-            let chunk = sample_consumer
-                .read_chunk(ring_capacity)
-                .expect("pre-filled audio ring is readable");
-            chunk.commit_all();
-        }
+        let (mut sample_producer, sample_consumer) = new_sample_ring(config.sample_rate().0);
 
         // Resolve the effective channel to use. If the selected channel is
         // out of range for this device, fall back to averaging all channels.
@@ -546,10 +540,59 @@ impl AudioRecorder {
         acknowledge_pause_after_write(transport);
     }
 
+    /// Opens a sound server source at its native rate and channel count; the
+    /// server only converts samples to f32.
+    #[cfg(target_os = "linux")]
+    fn open_pulse_stream(
+        source: &PulseSource,
+        selected_channel: Option<usize>,
+        transport: &Arc<CaptureTransportState>,
+        stream_error: &Arc<AtomicBool>,
+    ) -> Result<(CaptureStream, u32, Consumer<f32>), String> {
+        let open_started = Instant::now();
+        let format = pulse::capture_format(&source.name)?;
+        let channels = format.channels;
+        let sample_rate = format.sample_rate;
+
+        log::info!(
+            "Using sound server source: {:?} ({})\nSample rate: {}\nChannels: {}",
+            source.description,
+            source.name,
+            sample_rate,
+            channels
+        );
+        log_channel_selection(selected_channel, channels);
+
+        let (mut sample_producer, sample_consumer) = new_sample_ring(sample_rate);
+        let use_channel = selected_channel.filter(|&channel| channel < channels);
+        let callback_transport = Arc::clone(transport);
+        let failure_flag = Arc::clone(stream_error);
+        let capture = pulse::open_capture(
+            &format,
+            move |data: &[f32]| {
+                Self::write_input_to_ring(
+                    data,
+                    channels,
+                    use_channel,
+                    &mut sample_producer,
+                    &callback_transport,
+                );
+            },
+            move || failure_flag.store(true, Ordering::Release),
+        )?;
+        log::debug!("mic worker init: pulse_open={:?}", open_started.elapsed());
+
+        Ok((CaptureStream::Pulse(capture), sample_rate, sample_consumer))
+    }
+
     pub fn preferred_input_channel_count(
-        device: &cpal::Device,
+        device: &InputDevice,
     ) -> Result<u16, Box<dyn std::error::Error>> {
-        Ok(Self::get_preferred_config(device)?.channels())
+        match device {
+            InputDevice::Cpal(device) => Ok(Self::get_preferred_config(device)?.channels()),
+            #[cfg(target_os = "linux")]
+            InputDevice::Pulse(source) => Ok(source.channels),
+        }
     }
 
     fn get_preferred_config(
@@ -605,6 +648,43 @@ impl AudioRecorder {
             target_rate
         );
         Ok(default_config)
+    }
+}
+
+fn new_sample_ring(sample_rate: u32) -> (Producer<f32>, Consumer<f32>) {
+    let ring_capacity = sample_rate as usize * AUDIO_RING_SECONDS;
+    let (mut sample_producer, mut sample_consumer) = RingBuffer::new(ring_capacity);
+
+    // Touch rtrb's uninitialized pages before the stream starts to reduce
+    // callback page faults. This does not pin them.
+    {
+        let chunk = sample_producer
+            .write_chunk(ring_capacity)
+            .expect("new audio ring has its full capacity available");
+        chunk.commit_all();
+    }
+    {
+        let chunk = sample_consumer
+            .read_chunk(ring_capacity)
+            .expect("pre-filled audio ring is readable");
+        chunk.commit_all();
+    }
+    (sample_producer, sample_consumer)
+}
+
+fn log_channel_selection(selected_channel: Option<usize>, channels: usize) {
+    if let Some(channel) = selected_channel {
+        if channel < channels {
+            log::info!("Using selected input channel: {}", channel + 1);
+        } else {
+            log::warn!(
+                "Selected input channel {} is out of range for a {}-channel device; averaging all channels instead",
+                channel + 1,
+                channels
+            );
+        }
+    } else {
+        log::info!("Averaging all {} input channels", channels);
     }
 }
 

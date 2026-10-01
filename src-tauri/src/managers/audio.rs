@@ -4,7 +4,7 @@ use crate::audio_toolkit::{
         frames_for_duration_ms, EarshotVad, SmoothedVad, VAD_OFFLINE_HANGOVER_MS, VAD_ONSET_MS,
         VAD_PREFILL_MS, VAD_STREAMING_HANGOVER_MS,
     },
-    AudioRecorder, SileroVad, VadPolicy, VoiceActivityDetector,
+    AudioRecorder, InputDevice, SileroVad, VadPolicy, VoiceActivityDetector,
 };
 use crate::helpers::clamshell;
 use crate::managers::transcription::StreamRouter;
@@ -266,12 +266,12 @@ enum DesiredMicrophone {
     Clamshell(String),
 }
 
-/// Result of resolving the persisted preference to a live cpal device.
+/// Result of resolving the persisted preference to a live input device.
 /// `device: None` means cpal should open the system default. The unavailable
 /// name is populated only when enumeration succeeded and confirmed that the
 /// user's regular selected microphone is missing.
 struct MicrophoneResolution {
-    device: Option<cpal::Device>,
+    device: Option<InputDevice>,
     unavailable_selected_microphone: Option<String>,
 }
 
@@ -395,13 +395,13 @@ pub struct AudioRecordingManager {
     /// stopped or cancelled. This prevents a slow device from producing a late
     /// "ready" indication for a session the user already ended.
     capture_generation: Arc<AtomicU64>,
-    /// Resolution of a *named* microphone (selected or clamshell) to its cpal
+    /// Resolution of a *named* microphone (selected or clamshell) to its input
     /// device, cached so on-demand recording starts skip the full device
     /// enumeration (~40-110ms). Keyed by the resolved name, so a settings
     /// change misses naturally; cleared when an open fails (device unplugged)
     /// so the retry re-enumerates. The system-default case is never cached —
     /// the recorder resolves the current default itself, cheaply.
-    cached_device: Arc<Mutex<Option<(String, cpal::Device)>>>,
+    cached_device: Arc<Mutex<Option<(String, InputDevice)>>>,
 }
 
 impl AudioRecordingManager {

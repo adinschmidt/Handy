@@ -2,7 +2,7 @@ use hound::WavWriter;
 use std::io::{self, Write};
 
 use handy_app_lib::audio_toolkit::{
-    audio::{list_input_devices, CpalDeviceInfo},
+    audio::{list_input_devices, InputDeviceInfo},
     vad::{
         frames_for_duration_ms, SmoothedVad, VAD_OFFLINE_HANGOVER_MS, VAD_ONSET_MS,
         VAD_PREFILL_MS, VAD_STREAMING_HANGOVER_MS,
@@ -81,7 +81,7 @@ impl RecorderState {
     fn start_recording(
         &mut self,
         device_index: Option<usize>,
-        devices: &[CpalDeviceInfo],
+        devices: &[InputDeviceInfo],
     ) -> Result<(), Box<dyn std::error::Error>> {
         if self.is_recording {
             return Err("Already recording! Stop the current recording first.".into());
@@ -343,7 +343,7 @@ fn print_help() {
     println!();
 }
 
-fn print_devices(devices: &[CpalDeviceInfo]) {
+fn print_devices(devices: &[InputDeviceInfo]) {
     println!("Available audio devices:");
     for (index, device) in devices.iter().enumerate() {
         println!("  {}: {}", index, device.name);
