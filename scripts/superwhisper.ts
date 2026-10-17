@@ -20,6 +20,7 @@ const HELP = `Usage: bun scripts/superwhisper.ts [options] <audio-or-video-file>
       --handy-config FILE  Override Handy settings path, including portable installs
       --from-json         Render a saved response without uploading audio
       --no-convert        Upload as-is instead of extracting with ffmpeg
+                          (extracted audio over 50 MB becomes mono Opus)
   -h, --help              Show help
 
 Subtitles default to <input-basename>.srt beside the input; text uses stdout.
@@ -371,6 +372,23 @@ export function uploadFormat(codec: string) {
       return { extension: "wav", mime: "audio/wav", copy: false };
   }
 }
+// Larger uploads are rejected with HTTP 413, so long recordings are re-encoded below this size.
+export const UPLOAD_LIMIT = 50 * 1000 * 1000;
+const OPUS_KBPS = [32, 24, 16];
+export function opusBitrate(seconds: number) {
+  // Leave a little room for Ogg container overhead.
+  const fits = (kbps: number) =>
+    ((kbps * 1000) / 8) * seconds * 1.03 <= UPLOAD_LIMIT;
+  return OPUS_KBPS.find(fits) ?? OPUS_KBPS.at(-1)!;
+}
+async function ffmpeg(args: string[]) {
+  const child = Bun.spawn(
+    ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", ...args],
+    { stdout: "ignore", stderr: "ignore" },
+  );
+  if ((await child.exited) !== 0)
+    throw new Error("ffmpeg could not extract the audio track.");
+}
 export async function prepareAudio(input: string, directory: string) {
   const probe = Bun.spawn(
     [
@@ -380,7 +398,7 @@ export async function prepareAudio(input: string, directory: string) {
       "-select_streams",
       "a:0",
       "-show_entries",
-      "stream=codec_name,start_time:format=start_time",
+      "stream=codec_name,start_time:format=start_time,duration",
       "-of",
       "json",
       resolve(input),
@@ -407,29 +425,40 @@ export async function prepareAudio(input: string, directory: string) {
       ? Math.max(0, trackStart - mediaStart)
       : 0;
   const path = join(directory, `audio.${format.extension}`);
-  const child = Bun.spawn(
-    [
-      "ffmpeg",
-      "-hide_banner",
-      "-loglevel",
-      "error",
-      "-nostdin",
-      "-i",
-      resolve(input),
-      "-map",
-      "0:a:0",
-      "-vn",
-      "-map_metadata",
-      "-1",
-      "-c:a",
-      format.copy ? "copy" : "pcm_s16le",
-      path,
-    ],
-    { stdout: "ignore", stderr: "ignore" },
-  );
-  if ((await child.exited) !== 0)
-    throw new Error("ffmpeg could not extract the audio track.");
-  return { path, mime: format.mime, offset };
+  const source = [
+    "-i",
+    resolve(input),
+    "-map",
+    "0:a:0",
+    "-vn",
+    "-map_metadata",
+    "-1",
+  ];
+  await ffmpeg([...source, "-c:a", format.copy ? "copy" : "pcm_s16le", path]);
+  if (Bun.file(path).size <= UPLOAD_LIMIT)
+    return { path, mime: format.mime, offset };
+  const duration = record(info.format) ? Number(info.format.duration) : NaN;
+  if (!Number.isFinite(duration) || duration <= 0)
+    throw new Error("Audio is too large and its duration is unknown.");
+  await rm(path, { force: true });
+  // Mono Opus keeps speech intelligible at a fraction of the original size.
+  const opus = join(directory, "audio.ogg");
+  const kbps = opusBitrate(duration);
+  await ffmpeg([
+    ...source,
+    "-ac",
+    "1",
+    "-c:a",
+    "libopus",
+    "-b:a",
+    `${kbps}k`,
+    opus,
+  ]);
+  if (Bun.file(opus).size > UPLOAD_LIMIT)
+    throw new Error(
+      "Audio is too long to fit the upload limit even at 16 kbps.",
+    );
+  return { path: opus, mime: "audio/ogg", offset };
 }
 
 async function main() {

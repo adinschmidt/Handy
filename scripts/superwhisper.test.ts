@@ -8,6 +8,7 @@ import {
   handyConfigPath,
   inferenceHost,
   options,
+  opusBitrate,
   render,
   scribeForm,
   timestamp,
@@ -284,4 +285,11 @@ test("credentials prefer environment values and fill gaps from Handy without wri
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+test("Opus bitrate is the highest that keeps long audio under the upload limit", () => {
+  expect(opusBitrate(8210)).toBe(32);
+  expect(opusBitrate(4 * 3600)).toBe(24);
+  expect(opusBitrate(6 * 3600)).toBe(16);
+  expect(opusBitrate(12 * 3600)).toBe(16);
 });
