@@ -20,7 +20,8 @@ const HELP = `Usage: bun scripts/superwhisper.ts [options] <audio-or-video-file>
       --handy-config FILE  Override Handy settings path, including portable installs
       --from-json         Render a saved response without uploading audio
       --no-convert        Upload as-is instead of extracting with ffmpeg
-                          (extracted audio over 50 MB becomes mono Opus)
+                          (otherwise audio over 14 minutes is split at
+                          silences, since Superwhisper's limit is 15)
   -h, --help              Show help
 
 Subtitles default to <input-basename>.srt beside the input; text uses stdout.
@@ -184,24 +185,76 @@ export function render(value: unknown, subtitles: boolean, diarize: boolean) {
   );
 }
 
+type Log = (message: string) => void;
+// Status goes to stderr so plain-text transcripts on stdout stay pipeable.
+// Bun's console.error paints everything red on a terminal, so write directly.
+const tty = Boolean(process.stderr.isTTY);
+let drawn = "";
+function clearBar() {
+  if (drawn) process.stderr.write("\r\x1b[K");
+  drawn = "";
+}
+const status: Log = (message) => {
+  clearBar();
+  process.stderr.write(`superwhisper: ${message}\n`);
+};
+function bar(fraction: number, label: string) {
+  if (!tty) return;
+  const width = 24;
+  const filled = Math.round(Math.min(1, Math.max(0, fraction)) * width);
+  const line = `superwhisper: [${"█".repeat(filled)}${"░".repeat(width - filled)}] ${label}`;
+  if (line === drawn) return;
+  process.stderr.write(`\r\x1b[K${line}`);
+  drawn = line;
+}
+export function megabytes(bytes: number) {
+  return `${(bytes / 1e6).toFixed(1)} MB`;
+}
+export function duration(seconds: number) {
+  const s = Math.round(seconds);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return s >= 3600
+    ? `${Math.floor(s / 3600)}:${pad(Math.floor(s / 60) % 60)}:${pad(s % 60)}`
+    : `${Math.floor(s / 60)}:${pad(s % 60)}`;
+}
+function since(start: number) {
+  const seconds = (performance.now() - start) / 1000;
+  return seconds < 60 ? `${seconds.toFixed(1)}s` : duration(seconds);
+}
+
+class RequestError extends Error {
+  constructor(
+    message: string,
+    readonly retryable: boolean,
+  ) {
+    super(message);
+  }
+}
 async function jsonRequest(
   url: string | URL,
   init: RequestInit = {},
 ): Promise<unknown> {
   let response: Response;
+  const timeout = AbortSignal.timeout(30 * 60 * 1000);
   try {
     response = await fetch(url, {
       ...init,
       redirect: "error",
-      signal: AbortSignal.timeout(30 * 60 * 1000),
+      signal: init.signal ? AbortSignal.any([init.signal, timeout]) : timeout,
     });
   } catch {
-    throw new Error("Superwhisper request failed or timed out.");
-  }
-  if (!response.ok)
-    throw new Error(
-      `Superwhisper returned HTTP ${response.status}.${[401, 403].includes(response.status) ? " Refresh your Superwhisper credentials." : ""}`,
+    throw new RequestError(
+      "Superwhisper request failed or timed out.",
+      !init.signal?.aborted,
     );
+  }
+  if (!response.ok) {
+    const detail = (await response.text().catch(() => "")).trim();
+    throw new RequestError(
+      `Superwhisper returned HTTP ${response.status}${detail && detail.length < 200 ? `: ${detail}` : "."}${[401, 403].includes(response.status) ? " Refresh your Superwhisper credentials." : ""}`,
+      response.status === 429 || response.status >= 500,
+    );
+  }
   try {
     return await response.json();
   } catch {
@@ -311,18 +364,56 @@ export function inferenceHost(host: unknown) {
     throw new Error("Invalid S1 inference host.");
   return url;
 }
-async function transcribe(
+type Send = (
   audio: Blob,
   name: string,
+  sent: (bytes: number) => void,
+  signal: AbortSignal,
+) => Promise<unknown>;
+// Serialize the form up front so the upload can report bytes as fetch pulls them.
+async function streamedForm(form: FormData, sent: (bytes: number) => void) {
+  const encoded = new Response(form);
+  // Bun drops this header once the body is read, so take it first.
+  const type = encoded.headers.get("Content-Type")!;
+  const bytes = new Uint8Array(await encoded.arrayBuffer());
+  let offset = 0;
+  const body = new ReadableStream(
+    {
+      pull(controller) {
+        if (offset >= bytes.length) return controller.close();
+        const piece = bytes.slice(offset, offset + 64 * 1024);
+        offset += piece.length;
+        sent(piece.length);
+        controller.enqueue(piece);
+      },
+    },
+    { highWaterMark: 0 },
+  );
+  return {
+    body,
+    duplex: "half",
+    headers: {
+      "Content-Type": type,
+      "Content-Length": String(bytes.length),
+    },
+  };
+}
+async function transcriber(
   opts: Options,
   headers: Headers,
-) {
+  log: Log,
+): Promise<Send> {
   if (opts.model === "scribe")
-    return jsonRequest(`${API}/elevenlabs/v1/transcribe`, {
-      method: "POST",
-      headers,
-      body: scribeForm(audio, name, opts),
-    });
+    return async (audio, name, sent, signal) => {
+      const upload = await streamedForm(scribeForm(audio, name, opts), sent);
+      return jsonRequest(`${API}/elevenlabs/v1/transcribe`, {
+        ...upload,
+        method: "POST",
+        headers: { ...Object.fromEntries(headers), ...upload.headers },
+        signal,
+      });
+    };
+  log("Requesting S1 region and inference key...");
   const regions = await jsonRequest(`${API}/v2/inference/regions`, {
     headers: { "User-Agent": USER_AGENT, "X-Platform": "macos" },
   });
@@ -342,17 +433,129 @@ async function transcribe(
   );
   if (!record(key) || typeof key.key !== "string" || !key.key.trim())
     throw new Error("Missing S1 inference key.");
-  const form = new FormData();
-  form.set("audio", audio, name);
-  form.set("language", opts.language);
-  form.set("asr_prompt", "");
-  form.set("enable_word_timestamps", "true");
-  form.set("enable_audio_vocab", "false");
-  return jsonRequest(new URL("generate", host), {
-    method: "POST",
-    headers: { Authorization: `Bearer ${key.key}` },
-    body: form,
-  });
+  return async (audio, name, sent, signal) => {
+    const form = new FormData();
+    form.set("audio", audio, name);
+    form.set("language", opts.language);
+    form.set("asr_prompt", "");
+    form.set("enable_word_timestamps", "true");
+    form.set("enable_audio_vocab", "false");
+    const upload = await streamedForm(form, sent);
+    return jsonRequest(new URL("generate", host), {
+      ...upload,
+      method: "POST",
+      headers: { Authorization: `Bearer ${key.key}`, ...upload.headers },
+      signal,
+    });
+  };
+}
+type Chunk = { path: string; mime: string; start: number };
+const PARALLEL_UPLOADS = 3;
+async function transcribeChunks(chunks: Chunk[], send: Send, log: Log) {
+  const files = chunks.map((chunk) =>
+    Bun.file(chunk.path, { type: chunk.mime }),
+  );
+  const total = files.reduce((sum, file) => sum + file.size, 0);
+  const sent = chunks.map(() => 0);
+  const results: unknown[] = [];
+  let done = 0;
+  const draw = () => {
+    const bytes = sent.reduce((sum, n) => sum + n, 0);
+    const uploaded = `${megabytes(bytes)} / ${megabytes(total)} uploaded`;
+    bar(
+      bytes / total,
+      chunks.length > 1
+        ? `${uploaded}, ${done}/${chunks.length} chunks transcribed`
+        : bytes < total
+          ? uploaded
+          : `${megabytes(total)} uploaded, waiting for the transcript...`,
+    );
+  };
+  log(
+    chunks.length > 1
+      ? `Uploading ${chunks.length} chunks (${megabytes(total)}), ${PARALLEL_UPLOADS} at a time...`
+      : `Uploading ${megabytes(total)}...`,
+  );
+  const abort = new AbortController();
+  let next = 0;
+  const worker = async () => {
+    while (next < chunks.length && !abort.signal.aborted) {
+      const i = next++;
+      const name =
+        chunks.length > 1 ? `chunk ${i + 1}/${chunks.length}` : "Upload";
+      for (let attempt = 1; ; attempt++) {
+        sent[i] = 0;
+        try {
+          results[i] = await send(
+            files[i]!,
+            basename(chunks[i]!.path),
+            (bytes) => {
+              sent[i]! += bytes;
+              draw();
+            },
+            abort.signal,
+          );
+          break;
+        } catch (error) {
+          if (
+            attempt >= 3 ||
+            abort.signal.aborted ||
+            !(error instanceof RequestError && error.retryable)
+          )
+            throw error;
+          log(`${name} failed (${error.message}) Retrying...`);
+          await Bun.sleep(attempt * 5000);
+        }
+      }
+      done++;
+      if (chunks.length > 1) {
+        if (!tty) log(`Transcribed chunk ${i + 1}/${chunks.length}.`);
+        draw();
+      }
+    }
+  };
+  try {
+    draw();
+    await Promise.all(
+      Array.from({ length: Math.min(PARALLEL_UPLOADS, chunks.length) }, () =>
+        worker().catch((error: unknown) => {
+          // Stop the other uploads so a failure doesn't keep consuming usage.
+          abort.abort();
+          throw error;
+        }),
+      ),
+    );
+  } finally {
+    clearBar();
+  }
+  return chunks.length > 1
+    ? mergeChunks(
+        results.map((response, i) => ({ response, start: chunks[i]!.start })),
+      )
+    : results[0];
+}
+export function mergeChunks(parts: { response: unknown; start: number }[]) {
+  const responses = parts.map(({ response }) => transcript(response));
+  const timed = responses.every((response) => Array.isArray(response.words));
+  return {
+    ...responses[0],
+    text: responses
+      .map((response) => String(response.text).trim())
+      .filter(Boolean)
+      .join(" "),
+    words: timed
+      ? parts.flatMap(({ start }, i) =>
+          (responses[i]!.words as unknown[]).map((word) =>
+            record(word) &&
+            typeof word.start === "number" &&
+            typeof word.end === "number"
+              ? { ...word, start: word.start + start, end: word.end + start }
+              : word,
+          ),
+        )
+      : undefined,
+    _chunk_starts: parts.map(({ start }) => start),
+  };
 }
 
 export function uploadFormat(codec: string) {
@@ -372,24 +575,60 @@ export function uploadFormat(codec: string) {
       return { extension: "wav", mime: "audio/wav", copy: false };
   }
 }
-// Larger uploads are rejected with HTTP 413, so long recordings are re-encoded below this size.
+// Superwhisper rejects recordings over 15 minutes with HTTP 413, so longer
+// audio is split at silences into chunks of at most CHUNK_MAX seconds.
+export const CHUNK_MAX = 14 * 60;
+export const CHUNK_MIN = 8 * 60;
+// Uncompressed WAV fallbacks can be huge; re-encode those instead of uploading.
 export const UPLOAD_LIMIT = 50 * 1000 * 1000;
-const OPUS_KBPS = [32, 24, 16];
-export function opusBitrate(seconds: number) {
-  // Leave a little room for Ogg container overhead.
-  const fits = (kbps: number) =>
-    ((kbps * 1000) / 8) * seconds * 1.03 <= UPLOAD_LIMIT;
-  return OPUS_KBPS.find(fits) ?? OPUS_KBPS.at(-1)!;
+const OPUS = ["-ac", "1", "-c:a", "libopus", "-b:a", "64k"];
+type Silence = { start: number; end: number };
+export function silences(log: string): Silence[] {
+  return [
+    ...log.matchAll(/silence_end: ([\d.]+) \| silence_duration: ([\d.]+)/g),
+  ].map((match) => ({
+    start: Number(match[1]) - Number(match[2]),
+    end: Number(match[1]),
+  }));
+}
+// Cut each chunk in the latest silence of at least a second between CHUNK_MIN
+// and CHUNK_MAX, else the longest shorter one, else hard at CHUNK_MAX.
+export function cutPoints(length: number, quiet: Silence[]) {
+  const cuts: number[] = [];
+  let from = 0;
+  const middle = (silence: Silence) => (silence.start + silence.end) / 2;
+  const span = (silence: Silence) => Math.min(silence.end - silence.start, 1);
+  while (length - from > CHUNK_MAX) {
+    let best: Silence | undefined;
+    for (const silence of quiet) {
+      if (
+        middle(silence) < from + CHUNK_MIN ||
+        middle(silence) > from + CHUNK_MAX
+      )
+        continue;
+      if (!best || span(silence) >= span(best)) best = silence;
+    }
+    from = best ? middle(best) : from + CHUNK_MAX;
+    cuts.push(from);
+  }
+  return cuts;
 }
 async function ffmpeg(args: string[]) {
-  const child = Bun.spawn(
-    ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", ...args],
-    { stdout: "ignore", stderr: "ignore" },
-  );
+  const child = Bun.spawn(["ffmpeg", "-hide_banner", "-nostdin", ...args], {
+    stdout: "ignore",
+    stderr: "pipe",
+  });
+  const log = await new Response(child.stderr).text();
   if ((await child.exited) !== 0)
     throw new Error("ffmpeg could not extract the audio track.");
+  return log;
 }
-export async function prepareAudio(input: string, directory: string) {
+export async function prepareAudio(
+  input: string,
+  directory: string,
+  log: Log = () => {},
+): Promise<{ chunks: Chunk[]; offset: number }> {
+  log("Inspecting audio track...");
   const probe = Bun.spawn(
     [
       "ffprobe",
@@ -424,8 +663,11 @@ export async function prepareAudio(input: string, directory: string) {
     Number.isFinite(trackStart) && Number.isFinite(mediaStart)
       ? Math.max(0, trackStart - mediaStart)
       : 0;
-  const path = join(directory, `audio.${format.extension}`);
+  const length = record(info.format) ? Number(info.format.duration) : NaN;
+  const known = Number.isFinite(length) && length > 0;
   const source = [
+    "-loglevel",
+    "error",
     "-i",
     resolve(input),
     "-map",
@@ -434,31 +676,80 @@ export async function prepareAudio(input: string, directory: string) {
     "-map_metadata",
     "-1",
   ];
-  await ffmpeg([...source, "-c:a", format.copy ? "copy" : "pcm_s16le", path]);
-  if (Bun.file(path).size <= UPLOAD_LIMIT)
-    return { path, mime: format.mime, offset };
-  const duration = record(info.format) ? Number(info.format.duration) : NaN;
-  if (!Number.isFinite(duration) || duration <= 0)
-    throw new Error("Audio is too large and its duration is unknown.");
-  await rm(path, { force: true });
-  // Mono Opus keeps speech intelligible at a fraction of the original size.
-  const opus = join(directory, "audio.ogg");
-  const kbps = opusBitrate(duration);
-  await ffmpeg([
-    ...source,
-    "-ac",
-    "1",
-    "-c:a",
-    "libopus",
-    "-b:a",
-    `${kbps}k`,
-    opus,
-  ]);
-  if (Bun.file(opus).size > UPLOAD_LIMIT)
-    throw new Error(
-      "Audio is too long to fit the upload limit even at 16 kbps.",
+  let start = performance.now();
+  if (known && length > CHUNK_MAX) {
+    log(
+      `Found ${stream.codec_name} audio, ${duration(length)} long. Superwhisper accepts at most 15 minutes, so finding silences to split at...`,
     );
-  return { path: opus, mime: "audio/ogg", offset };
+    const detection = await ffmpeg([
+      ...source.slice(2),
+      "-af",
+      "aformat=channel_layouts=mono,silencedetect=noise=-35dB:d=0.4",
+      "-f",
+      "null",
+      "-",
+    ]);
+    const cuts = cutPoints(length, silences(detection));
+    log(
+      `Found silences in ${since(start)}. Encoding ${cuts.length + 1} mono Opus chunks...`,
+    );
+    start = performance.now();
+    const list = join(directory, "chunks.csv");
+    await ffmpeg([
+      ...source,
+      ...OPUS,
+      "-f",
+      "segment",
+      "-segment_format",
+      "ogg",
+      "-segment_times",
+      cuts.map((cut) => cut.toFixed(3)).join(","),
+      "-reset_timestamps",
+      "1",
+      "-segment_list",
+      list,
+      "-segment_list_type",
+      "csv",
+      join(directory, "chunk%03d.ogg"),
+    ]);
+    const chunks = (await readFile(list, "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => {
+        const [name, begin] = line.split(",");
+        return {
+          path: join(directory, name!),
+          mime: "audio/ogg",
+          start: Number(begin),
+        };
+      });
+    log(
+      `Encoded ${chunks.length} chunks in ${since(start)}: ${chunks
+        .map((chunk, i) =>
+          duration((chunks[i + 1]?.start ?? length) - chunk.start),
+        )
+        .join(", ")}.`,
+    );
+    return { chunks, offset };
+  }
+  log(
+    `Found ${stream.codec_name} audio${known ? `, ${duration(length)} long` : ""}. ${
+      format.copy ? "Extracting without re-encoding" : "Converting to WAV"
+    }...`,
+  );
+  const path = join(directory, `audio.${format.extension}`);
+  await ffmpeg([...source, "-c:a", format.copy ? "copy" : "pcm_s16le", path]);
+  const size = Bun.file(path).size;
+  log(`Extracted ${megabytes(size)} in ${since(start)}.`);
+  if (size <= UPLOAD_LIMIT)
+    return { chunks: [{ path, mime: format.mime, start: 0 }], offset };
+  await rm(path, { force: true });
+  log(`Over ${megabytes(UPLOAD_LIMIT)}. Re-encoding to mono Opus...`);
+  start = performance.now();
+  const opus = join(directory, "audio.ogg");
+  await ffmpeg([...source, ...OPUS, opus]);
+  log(`Re-encoded to ${megabytes(Bun.file(opus).size)} in ${since(start)}.`);
+  return { chunks: [{ path: opus, mime: "audio/ogg", start: 0 }], offset };
 }
 
 async function main() {
@@ -497,20 +788,22 @@ async function main() {
         throw new Error("Input is not valid JSON.");
       }
     } else {
-      let audio = input;
+      let chunks: Chunk[] = [{ path: opts.input, mime: input.type, start: 0 }];
       let offset = 0;
       if (!opts["no-convert"]) {
         temporary = await mkdtemp(join(tmpdir(), "superwhisper-"));
-        const prepared = await prepareAudio(opts.input, temporary);
-        audio = Bun.file(prepared.path, { type: prepared.mime });
-        offset = prepared.offset;
+        ({ chunks, offset } = await prepareAudio(
+          opts.input,
+          temporary,
+          status,
+        ));
       }
-      response = await transcribe(
-        audio,
-        basename(audio.name ?? opts.input),
-        opts,
-        headers!,
-      );
+      if (chunks.length > 1 && opts.diarize)
+        status("Speaker labels restart in every chunk and may not match.");
+      const send = await transcriber(opts, headers!, status);
+      const start = performance.now();
+      response = await transcribeChunks(chunks, send, status);
+      status(`Transcribed in ${since(start)}.`);
       // Preserve a delayed audio track's position on the video's playback timeline.
       if (record(response) && offset > 0)
         response._audio_start_seconds = offset;
@@ -520,6 +813,7 @@ async function main() {
         .get(opts["save-json"])!
         .writeFile(JSON.stringify(response, null, 2) + "\n");
       completed.add(opts["save-json"]);
+      status(`Saved response to ${opts["save-json"]}.`);
     }
     const result = render(
       response,
@@ -529,6 +823,7 @@ async function main() {
     if (opts.output) {
       await outputs.get(opts.output)!.writeFile(result);
       completed.add(opts.output);
+      status(`Wrote ${opts.output}.`);
     } else {
       await Bun.write(Bun.stdout, result);
     }
@@ -542,6 +837,7 @@ async function main() {
 }
 if (import.meta.main) {
   main().catch((error: unknown) => {
+    clearBar();
     console.error(
       `superwhisper: ${error instanceof Error ? error.message : "Operation failed."}`,
     );

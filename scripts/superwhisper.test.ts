@@ -8,7 +8,10 @@ import {
   handyConfigPath,
   inferenceHost,
   options,
-  opusBitrate,
+  CHUNK_MAX,
+  cutPoints,
+  mergeChunks,
+  silences,
   render,
   scribeForm,
   timestamp,
@@ -186,7 +189,9 @@ test("FFmpeg extracts AAC video without re-encoding and converts unsupported cod
       { stdout: "ignore", stderr: "pipe" },
     );
     expect(await create.exited).toBe(0);
-    const prepared = await prepareAudio(video, dir);
+    const { chunks } = await prepareAudio(video, dir);
+    expect(chunks).toHaveLength(1);
+    const prepared = chunks[0]!;
     expect(prepared.mime).toBe("audio/mp4");
     const hash = async (path: string) => {
       const child = Bun.spawn(
@@ -230,7 +235,7 @@ test("FFmpeg extracts AAC video without re-encoding and converts unsupported cod
       { stdout: "ignore", stderr: "ignore" },
     );
     expect(await createOther.exited).toBe(0);
-    expect((await prepareAudio(other, dir)).mime).toBe("audio/wav");
+    expect((await prepareAudio(other, dir)).chunks[0]!.mime).toBe("audio/wav");
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -287,9 +292,85 @@ test("credentials prefer environment values and fill gaps from Handy without wri
   }
 });
 
-test("Opus bitrate is the highest that keeps long audio under the upload limit", () => {
-  expect(opusBitrate(8210)).toBe(32);
-  expect(opusBitrate(4 * 3600)).toBe(24);
-  expect(opusBitrate(6 * 3600)).toBe(16);
-  expect(opusBitrate(12 * 3600)).toBe(16);
+test("long audio is cut in the longest silence and never over the limit", () => {
+  const quiet = [
+    { start: 500, end: 500.5 },
+    { start: 700, end: 702 },
+    { start: 830, end: 830.4 },
+  ];
+  expect(cutPoints(CHUNK_MAX, quiet)).toEqual([]);
+  expect(cutPoints(1200, quiet)).toEqual([701]);
+  // No silence in range: hard cuts keep every chunk at CHUNK_MAX.
+  expect(cutPoints(2000, [])).toEqual([CHUNK_MAX, 2 * CHUNK_MAX]);
+  expect(
+    silences(
+      "[silencedetect @ 0x1] silence_start: 9.5\n[silencedetect @ 0x1] silence_end: 10.25 | silence_duration: 0.75\n",
+    ),
+  ).toEqual([{ start: 9.5, end: 10.25 }]);
 });
+
+test("chunk transcripts merge with words shifted onto the full timeline", () => {
+  const merged = mergeChunks([
+    {
+      start: 0,
+      response: {
+        text: "Hello there.",
+        language_code: "en",
+        words: [{ text: "Hello", start: 0.5, end: 0.9 }],
+      },
+    },
+    {
+      start: 600,
+      response: {
+        text: " Again.",
+        words: [{ text: "Again.", start: 1, end: 1.4 }],
+      },
+    },
+  ]);
+  expect(merged.text).toBe("Hello there. Again.");
+  expect(merged.language_code).toBe("en");
+  expect(merged.words).toEqual([
+    { text: "Hello", start: 0.5, end: 0.9 },
+    { text: "Again.", start: 601, end: 601.4 },
+  ]);
+  expect(
+    mergeChunks([
+      { start: 0, response: { text: "a" } },
+      { start: 9, response: { text: "b", words: [] } },
+    ]).words,
+  ).toBeUndefined();
+});
+
+test("audio over the limit is split at silences into Opus chunks", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "superwhisper-chunk-test-"));
+  try {
+    const input = join(dir, "long.m4a");
+    // 20 minutes of tone with a 2 second gap every 100 seconds.
+    const create = Bun.spawn(
+      [
+        "ffmpeg",
+        "-v",
+        "error",
+        "-f",
+        "lavfi",
+        "-i",
+        "sine=frequency=440:sample_rate=8000:duration=1200",
+        "-af",
+        "volume='if(lt(mod(t,100),98),1,0)':eval=frame",
+        "-c:a",
+        "aac",
+        input,
+      ],
+      { stdout: "ignore", stderr: "ignore" },
+    );
+    expect(await create.exited).toBe(0);
+    const { chunks } = await prepareAudio(input, dir);
+    expect(chunks).toHaveLength(2);
+    expect(chunks.every((chunk) => chunk.mime === "audio/ogg")).toBe(true);
+    expect(chunks[0]!.start).toBe(0);
+    expect(chunks[1]!.start).toBeGreaterThan(798);
+    expect(chunks[1]!.start).toBeLessThan(800.1);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}, 30_000);
