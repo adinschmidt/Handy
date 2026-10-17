@@ -292,16 +292,27 @@ test("credentials prefer environment values and fill gaps from Handy without wri
   }
 });
 
-test("long audio is cut in the longest silence and never over the limit", () => {
+test("long audio is cut in silences planned across the whole file", () => {
   const quiet = [
     { start: 500, end: 500.5 },
     { start: 700, end: 702 },
     { start: 830, end: 830.4 },
   ];
   expect(cutPoints(CHUNK_MAX, quiet)).toEqual([]);
+  // The 2 second silence beats the shorter ones.
   expect(cutPoints(1200, quiet)).toEqual([701]);
-  // No silence in range: hard cuts keep every chunk at CHUNK_MAX.
-  expect(cutPoints(2000, [])).toEqual([CHUNK_MAX, 2 * CHUNK_MAX]);
+  // Greedy cutting at 830 leaves no silence for the next chunk; planning
+  // ahead cuts at 830 and 1300 so every cut stays in a silence.
+  const sparse = [400, 830, 1300].map((at) => ({
+    start: at - 0.5,
+    end: at + 0.5,
+  }));
+  expect(cutPoints(2100, sparse)).toEqual([830, 1300]);
+  // No silence at all: the forced cuts are spread evenly.
+  const forced = cutPoints(2000, []);
+  expect(forced).toHaveLength(2);
+  expect(forced[0]).toBeCloseTo(2000 / 3);
+  expect(forced[1]).toBeCloseTo(4000 / 3);
   expect(
     silences(
       "[silencedetect @ 0x1] silence_start: 9.5\n[silencedetect @ 0x1] silence_end: 10.25 | silence_duration: 0.75\n",
@@ -368,8 +379,9 @@ test("audio over the limit is split at silences into Opus chunks", async () => {
     expect(chunks).toHaveLength(2);
     expect(chunks.every((chunk) => chunk.mime === "audio/ogg")).toBe(true);
     expect(chunks[0]!.start).toBe(0);
-    expect(chunks[1]!.start).toBeGreaterThan(798);
-    expect(chunks[1]!.start).toBeLessThan(800.1);
+    // Even split: the gap nearest the 10 minute midpoint.
+    expect(chunks[1]!.start).toBeGreaterThan(598);
+    expect(chunks[1]!.start).toBeLessThan(600.1);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

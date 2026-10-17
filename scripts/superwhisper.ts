@@ -578,7 +578,6 @@ export function uploadFormat(codec: string) {
 // Superwhisper rejects recordings over 15 minutes with HTTP 413, so longer
 // audio is split at silences into chunks of at most CHUNK_MAX seconds.
 export const CHUNK_MAX = 14 * 60;
-export const CHUNK_MIN = 8 * 60;
 // Uncompressed WAV fallbacks can be huge; re-encode those instead of uploading.
 export const UPLOAD_LIMIT = 50 * 1000 * 1000;
 const OPUS = ["-ac", "1", "-c:a", "libopus", "-b:a", "64k"];
@@ -591,26 +590,61 @@ export function silences(log: string): Silence[] {
     end: Number(match[1]),
   }));
 }
-// Cut each chunk in the latest silence of at least a second between CHUNK_MIN
-// and CHUNK_MAX, else the longest shorter one, else hard at CHUNK_MAX.
+// Choose all cuts together (shortest path over the silences) so an early cut
+// never strands a later chunk without one. In order of priority: avoid cutting
+// outside a silence, use as few chunks as possible, prefer longer silences,
+// then keep chunk lengths even. Cuts outside a silence only happen where a
+// silence-free stretch is longer than CHUNK_MAX, and are spread evenly there.
+const HARD_CUT = 10;
+const CHUNK_COST = 1;
+const SHORT_SILENCE = 0.2;
+const UNEVEN = 0.1;
 export function cutPoints(length: number, quiet: Silence[]) {
-  const cuts: number[] = [];
-  let from = 0;
-  const middle = (silence: Silence) => (silence.start + silence.end) / 2;
-  const span = (silence: Silence) => Math.min(silence.end - silence.start, 1);
-  while (length - from > CHUNK_MAX) {
-    let best: Silence | undefined;
-    for (const silence of quiet) {
-      if (
-        middle(silence) < from + CHUNK_MIN ||
-        middle(silence) > from + CHUNK_MAX
-      )
-        continue;
-      if (!best || span(silence) >= span(best)) best = silence;
-    }
-    from = best ? middle(best) : from + CHUNK_MAX;
-    cuts.push(from);
+  if (length <= CHUNK_MAX) return [];
+  const silent = quiet
+    .map((silence) => ({
+      at: (silence.start + silence.end) / 2,
+      cost:
+        SHORT_SILENCE * (1 - Math.min(silence.end - silence.start, 1.5) / 1.5),
+    }))
+    .filter(({ at }) => at > 0 && at < length)
+    .sort((a, b) => a.at - b.at);
+  const points: { at: number; cost: number }[] = [];
+  for (const point of [
+    { at: 0, cost: 0 },
+    ...silent,
+    { at: length, cost: 0 },
+  ]) {
+    const last = points.at(-1);
+    const extra = last ? Math.ceil((point.at - last.at) / CHUNK_MAX) - 1 : 0;
+    for (let k = 1; k <= extra; k++)
+      points.push({
+        at: last!.at + ((point.at - last!.at) * k) / (extra + 1),
+        cost: HARD_CUT,
+      });
+    points.push(point);
   }
+  const target = length / Math.ceil(length / CHUNK_MAX);
+  const best = points.map(() => Infinity);
+  const previous = points.map(() => -1);
+  best[0] = 0;
+  for (let j = 1; j < points.length; j++)
+    for (let i = j - 1; i >= 0; i--) {
+      const size = points[j]!.at - points[i]!.at;
+      if (size > CHUNK_MAX) break;
+      const cost =
+        best[i]! +
+        CHUNK_COST +
+        points[j]!.cost +
+        UNEVEN * ((size - target) / CHUNK_MAX) ** 2;
+      if (cost < best[j]!) {
+        best[j] = cost;
+        previous[j] = i;
+      }
+    }
+  const cuts: number[] = [];
+  for (let i = previous[points.length - 1]!; i > 0; i = previous[i]!)
+    cuts.unshift(points[i]!.at);
   return cuts;
 }
 async function ffmpeg(args: string[]) {
