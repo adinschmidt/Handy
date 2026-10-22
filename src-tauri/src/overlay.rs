@@ -115,6 +115,17 @@ fn configure_layer_shell_surface(
     gtk_window.resize(1, 1);
 }
 
+/// Whether GTK is a native Wayland client. A Wayland session alone is not
+/// enough: the AppImage forces `GDK_BACKEND=x11`, making GTK an XWayland
+/// client whose regular windows can still be placed and kept unfocused.
+#[cfg(target_os = "linux")]
+fn gdk_uses_wayland() -> bool {
+    use gtk::glib::prelude::ObjectExt;
+    gtk::gdk::Display::default()
+        .map(|display| display.type_().name() == "GdkWaylandDisplay")
+        .unwrap_or_else(utils::is_wayland)
+}
+
 /// Initializes GTK layer shell for Linux overlay window
 /// Returns true if layer shell was successfully initialized, false otherwise
 #[cfg(target_os = "linux")]
@@ -439,7 +450,8 @@ pub fn create_recording_overlay(app_handle: &AppHandle) {
                 // Try to initialize GTK layer shell, ignore errors if compositor doesn't support it
                 if init_gtk_layer_shell(&window) {
                     debug!("GTK layer shell initialized for overlay window");
-                } else if utils::is_wayland() {
+                } else if gdk_uses_wayland() {
+                    OVERLAY_UNAVAILABLE.store(true, Ordering::SeqCst);
                     log::warn!("Recording overlay disabled: Wayland layer shell is unavailable");
                 } else {
                     debug!("GTK layer shell not available, falling back to regular window");
@@ -519,7 +531,7 @@ fn show_overlay_state_on_main(app_handle: &AppHandle, state: &str) {
     let (width, height) = overlay_dimensions(state);
     if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
         #[cfg(target_os = "linux")]
-        if utils::is_wayland() && !LAYER_SHELL_ACTIVE.load(Ordering::SeqCst) {
+        if OVERLAY_UNAVAILABLE.load(Ordering::SeqCst) {
             return;
         }
 
@@ -743,6 +755,12 @@ static OVERLAY_ENABLED: AtomicBool = AtomicBool::new(false);
 /// Used to skip layer-shell calls when the window is a regular fallback.
 #[cfg(target_os = "linux")]
 static LAYER_SHELL_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+/// Set when GTK is a native Wayland client without layer shell (Linux only).
+/// A regular Wayland toplevel can't be positioned and would take focus from
+/// the dictation target, so the overlay is never shown.
+#[cfg(target_os = "linux")]
+static OVERLAY_UNAVAILABLE: AtomicBool = AtomicBool::new(false);
 
 /// Update the cached overlay-enabled flag. Called from `lib.rs` at
 /// startup after settings load, and from `change_overlay_style_setting`
