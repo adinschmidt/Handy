@@ -9,6 +9,7 @@ fn main() {
 
     #[cfg(target_os = "linux")]
     {
+        clear_inherited_appimage_env();
         let gdk_wayland = select_gdk_backend();
 
         // DMABUF renderer causes crashes on various GPU/display server configurations
@@ -33,6 +34,22 @@ fn main() {
     }
 
     handy_app_lib::run(cli_args)
+}
+
+/// Drops `APPIMAGE`/`APPDIR` inherited from another AppImage (e.g. a terminal
+/// inside an AppImage-packaged editor launching a dev build). The autostart
+/// plugin writes `APPIMAGE` into the login entry, so a stale value makes login
+/// launch the other app instead of Handy.
+#[cfg(target_os = "linux")]
+fn clear_inherited_appimage_env() {
+    let inside_own_appimage = match (std::env::var_os("APPDIR"), std::env::current_exe()) {
+        (Some(appdir), Ok(exe)) => exe.starts_with(appdir),
+        _ => false,
+    };
+    if !inside_own_appimage {
+        std::env::remove_var("APPIMAGE");
+        std::env::remove_var("APPDIR");
+    }
 }
 
 /// Prefers GTK's native Wayland backend on Wayland sessions, so the overlay is
