@@ -392,15 +392,15 @@ If it is already installed and you still see startup problems, try reinstalling 
 
 **2. Disable the GTK layer shell overlay (`HANDY_NO_GTK_LAYER_SHELL`)**
 
-If installing the library does not help, you can skip `gtk-layer-shell` initialization entirely as a workaround. On some compositors (notably KDE Plasma under Wayland) it has been reported to interact poorly with the recording overlay. With this variable set, Wayland disables the overlay to avoid taking focus from the dictation target. X11 retains the regular always-on-top fallback:
+If installing the library does not help, you can skip `gtk-layer-shell` initialization entirely as a workaround. On some compositors (notably KDE Plasma under Wayland) it has been reported to interact poorly with the recording overlay. With this variable set, native Wayland disables the overlay to avoid taking focus from the dictation target. X11 and XWayland (`HANDY_GDK_BACKEND=x11`) retain the regular always-on-top fallback:
 
 ```bash
 HANDY_NO_GTK_LAYER_SHELL=1 handy
 ```
 
-**3. Disable WebKit DMA-BUF renderer (`WEBKIT_DISABLE_DMABUF_RENDERER`)**
+**3. WebKit DMA-BUF renderer (`WEBKIT_DISABLE_DMABUF_RENDERER`)**
 
-On some GPU/driver combinations the WebKitGTK DMA-BUF renderer can cause the window to fail to render or to crash. Try:
+On some GPU/driver combinations the WebKitGTK DMA-BUF renderer can cause the window to fail to render or to crash, so Handy disables it by default on X11. It stays enabled on Wayland, where the transparent recording overlay renders incompletely without it (only a box around the waveform is drawn, growing and shrinking with the bars). An explicit value always takes precedence:
 
 ```bash
 WEBKIT_DISABLE_DMABUF_RENDERER=1 handy
@@ -425,8 +425,10 @@ If the recording overlay is empty or bordered, fully quit Handy and launch a
 env -u HANDY_NO_GTK_LAYER_SHELL GDK_BACKEND=wayland handy
 ```
 
-If this works, apply `GDK_BACKEND=wayland` only to Handy's launcher. This
-workaround does not work with the 0.9.6 AppImage, which forces X11.
+If this works, apply `GDK_BACKEND=wayland` only to Handy's launcher. The
+AppImage already uses Wayland on Wayland sessions; set `HANDY_GDK_BACKEND`
+instead of `GDK_BACKEND` to choose its backend, since the AppImage's GTK hook
+overwrites `GDK_BACKEND`.
 
 ### Vulkan Overlays and Capture Tools on Windows (`HANDY_KEEP_VULKAN_IMPLICIT_LAYERS`)
 

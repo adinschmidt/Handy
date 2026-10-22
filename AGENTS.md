@@ -200,7 +200,7 @@ Access debug features: `Cmd+Shift+D` (macOS) or `Ctrl+Shift+D` (Windows/Linux)
 
 - **macOS**: Metal acceleration, accessibility permissions required for keyboard shortcuts
 - **Windows**: Vulkan acceleration, code signing. Implicit Vulkan layers (overlays, capture hooks) are disabled for the Handy process via `VK_LOADER_LAYERS_DISABLE=~implicit~` set in `main.rs`; opt out with `HANDY_KEEP_VULKAN_IMPLICIT_LAYERS=1` or by setting `VK_LOADER_LAYERS_DISABLE` yourself
-- **Linux**: OpenBLAS + Vulkan, limited Wayland support, overlay uses GTK layer shell (disable with `HANDY_NO_GTK_LAYER_SHELL=1`)
+- **Linux**: OpenBLAS + Vulkan. Wayland sessions use GTK's native Wayland backend, including the AppImage, whose forced `GDK_BACKEND=x11` is overridden in `main.rs` (choose explicitly with `HANDY_GDK_BACKEND`). WebKit's DMA-BUF renderer is disabled on X11 only. Overlay uses GTK layer shell (disable with `HANDY_NO_GTK_LAYER_SHELL=1`)
 
 ## Troubleshooting
 
