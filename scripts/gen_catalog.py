@@ -29,7 +29,7 @@ MIRRORS = ["https://blob.handy.computer"]
 
 # ───────────────────────── scoring (one constant each) ──────────────────────
 SPEED_SCALE = 8.0    # speed = 100·(1 − e^(−rtf/8))     grows toward 100
-ACC_SCALE   = 15.0   # accuracy = 100·e^(−wer/15)        decays from 100
+ACC_SCALE   = 15.0   # accuracy = 100·e^(−wer/15)        decays from 100; wer from accuracy_wer()
 SPEED_FLOOR = 10     # no reference-machine rtf (too heavy to benchmark) → floor, it's slow
 def speed_from_rtf(rtf):
     return SPEED_FLOOR if not rtf or rtf <= 0 else round(100 * (1 - math.exp(-rtf / SPEED_SCALE)))
@@ -56,9 +56,17 @@ CURATION = {
     "Fun-ASR-MLT-Nano-2512":           {"rank": 10, "desc": "A tiny multilingual model"},
     # description-only (unranked, not recommended) — carried over from the legacy .bin entry
     "Breeze-ASR-25":                   {"desc": "Optimized for Taiwanese Mandarin. Code-switching support."},
-    # Sortformer emits speaker segments only; Handy's catalog is for models
-    # that produce transcription text.
+    "granite-speech-5.0-470m-turboctc":    {"desc": "Extremely fast English transcription, best on GPU"},
+    "granite-speech-5.0-470m-turboctc-nc": {"desc": "Extremely fast English transcription. Non-commercial license"},
+    # Sortformer emits speaker segments only, the ECAPA model identifies
+    # languages, and Silero is a VAD; Handy's catalog is for models that
+    # produce transcription text.
     "diar_streaming_sortformer_4spk-v2.1": {"hidden": True},
+    "lang-id-voxlingua107-ecapa":          {"hidden": True},
+    "silero-vad-v6.2":                     {"hidden": True},
+    # Need transcribe-cpp 0.4.0; this fork pins 0.2.4.
+    "parakeet-ultra":                      {"hidden": True},
+    "orukeet":                             {"hidden": True},
 }
 # temporary capability corrections pending a card re-push (remove once cards fixed)
 OVERRIDES = {
@@ -92,11 +100,18 @@ def parse_params(size_label):
     m = re.match(r"([\d.]+)\s*([BM])", str(size_label or "").strip(), re.I)
     if not m: return None
     v = float(m.group(1));  return v if m.group(2).upper() == "B" else v / 1000
-def pick_wer(b):
-    if "wer_librispeech_test_clean" in b: return "librispeech", b["wer_librispeech_test_clean"]
-    if "wer_fleurs_en" in b: return "fleurs_en", b["wer_fleurs_en"]
+def accuracy_wer(b):
+    """Mean headline WER over LibriSpeech test-clean and FLEURS en.
+
+    LibriSpeech alone is saturated (most current models land at 1.3–2.0), so
+    FLEURS spreads the scores apart. Uses whichever of the two the card has;
+    a model with neither falls back to its first FLEURS language.
+    """
+    wers = [headline_wer(b.get(k))[0] for k in ("wer_librispeech_test_clean", "wer_fleurs_en")]
+    wers = [w for w in wers if w is not None]
+    if wers: return sum(wers) / len(wers)
     fl = [k for k in b if k.startswith("wer_fleurs")]
-    return (fl[0].replace("wer_", ""), b[fl[0]]) if fl else (None, {})
+    return headline_wer(b[fl[0]])[0] if fl else None
 def headline_wer(d):
     for q in ("q8_0","f16","q5_k_m","q6_k","q4_k_m","f32","bf16"):
         if isinstance(d, dict) and q in d: return d[q], q
@@ -217,7 +232,6 @@ def build(repo):
     caps = {"streaming": bool(b.get("streaming")), "translate": bool(b.get("translate")),
             "lang_detect": bool(b.get("lang_detect")), "timestamps": b.get("timestamps", "none")}
     ryz = b.get("rtf_ryzen_4750u") or {};  rtf = ryz.get("vulkan", ryz.get("cpu"))
-    eval_set, werd = pick_wer(b);  hw, hwq = headline_wer(werd)
 
     # Default-quant policy by model size (params from general.size_label):
     #   >=1B  -> Q5_K_M   (large models tolerate it; ~30% less download/RAM)
@@ -252,7 +266,7 @@ def build(repo):
         "languages": langs,
         "capabilities": caps,
         "speed_score": speed_from_rtf(rtf),
-        "accuracy_score": acc_from_wer(hw),
+        "accuracy_score": acc_from_wer(accuracy_wer(b)),
         "files": files,
         "default_quant": default_quant,
         "recommended": bool(cur.get("rec")),         # small badge/onboarding subset
